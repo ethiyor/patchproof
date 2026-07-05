@@ -1,0 +1,19 @@
+diff --git a/backend/utils/helpers.py b/backend/utils/helpers.py
+new file mode 100644
+index 0000000..a1b2c3d
+--- /dev/null
++++ b/backend/utils/helpers.py
+@@ -0,0 +1,14 @@
++from datetime import datetime
++
++
++def format_date(dt: datetime) -> str:
++    """Format a datetime as an ISO 8601 string."""
++    return dt.isoformat()
++
++
++def truncate(text: str, max_len: int = 100) -> str:
++    """Truncate text to at most max_len characters."""
++    if len(text) <= max_len:
++        return text
++    return text[: max_len - 3] + "..."

@@ -6,9 +6,71 @@ This file always shows the **latest** milestone. All previous milestones are arc
 |---|---|
 | 1.1 – 1.6 | [notes/](notes/) |
 | 2.1 — LLM Client | previous |
-| 2.2 — LLM Output Models | previous |
 | 2.3 — Task Analyzer | previous |
-| **2.4 — Diff Summarizer** | **current** |
+| 2.4 — Diff Summarizer | previous |
+| **2.5 — Verification Engine** | **current** |
+
+---
+
+## Current: Phase 2 — Milestone 2.5 — Verification Engine (LLM Step 3)
+
+### What was built
+
+The core of PatchProof. `verify_requirements(requirements, diff_text)` calls the LLM once per requirement and returns a `VerificationResult` for each — with status, evidence citations, and a reason. Supports parallel execution via `ThreadPoolExecutor`.
+
+### Files created
+
+| File | Purpose |
+|---|---|
+| `core/verification_engine.py` | `verify_requirements(...)` + `_verify_one(...)` |
+| `tests/unit/test_verification_engine.py` | 17 tests |
+
+---
+
+### The downgrade safety net
+
+The verification engine **never crashes the pipeline** over one bad requirement. When both retry attempts fail (e.g. the LLM keeps returning `satisfied` with no evidence), it downgrades the result:
+
+```python
+return VerificationResult(
+    requirement=requirement,
+    status="unclear",
+    evidence=[],
+    reason="Could not verify this requirement after 2 attempts. Last error: ...",
+)
+```
+
+This means a 5-requirement task still produces a 5-row checklist even if one row fails — the user sees `unclear` with a note, not a crash.
+
+### Parallel execution
+
+```python
+# Sequential (default — simpler, predictable order):
+results = verify_requirements(reqs, diff_text)
+
+# Parallel (faster for large requirement lists):
+results = verify_requirements(reqs, diff_text, max_workers=4)
+```
+
+Uses `ThreadPoolExecutor` (not asyncio) because `call_llm` is synchronous. Order is preserved regardless of which futures complete first.
+
+---
+
+### Pipeline status
+
+| Step | Module | Status |
+|---|---|---|
+| 1 — Extract requirements | `core/task_analyzer.py` | ✅ |
+| 2 — Summarise diff | `core/diff_summarizer.py` | ✅ |
+| 3 — Verify each requirement | `core/verification_engine.py` | ✅ |
+| 4 — Check test adequacy | `core/test_checker.py` | 🔜 next |
+| 5 — Generate report sections | `llm/pipeline.py` | 🔜 2.7 |
+
+---
+
+## What comes next — Milestone 2.6
+
+Build `core/test_checker.py` — cross-reference the expected test cases from Step 1 against the test files in the diff. No LLM needed here — it's a heuristic check. If no test files changed at all, all expected tests are flagged as missing.
 
 ---
 

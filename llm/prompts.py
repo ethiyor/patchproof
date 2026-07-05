@@ -6,39 +6,19 @@ Each step has two components:
   USER template  — the actual task-specific content (formatted at call time)
 
 Design rules:
-  1. Every system prompt ends with a reminder to return only valid JSON.
-  2. Hallucination-reduction instructions are in the system prompt, not the user message.
-  3. Field descriptions from the Pydantic models are embedded so the LLM knows
-     exactly what each key should contain.
+  1. Every system prompt ends with the exact JSON fields required.
+  2. Hallucination-reduction instructions are in the system prompt.
+  3. Field requirements shown as a concrete example to avoid schema confusion.
 """
 
 from __future__ import annotations
-
-import json
-
-from models.llm_outputs import (
-    DiffSummaryOutput,
-    FinalReportSections,
-    RequirementsOutput,
-    RiskAssessmentOutput,
-    VerificationResult,
-)
-
-# ---------------------------------------------------------------------------
-# Helper: embed the Pydantic JSON schema in the system prompt so the LLM
-# knows exactly what fields and types are expected.
-# ---------------------------------------------------------------------------
-
-
-def _schema(model) -> str:
-    return json.dumps(model.model_json_schema(), indent=2)
 
 
 # ---------------------------------------------------------------------------
 # Step 1 — Extract requirements
 # ---------------------------------------------------------------------------
 
-STEP1_SYSTEM = f"""\
+STEP1_SYSTEM = """\
 You are a software requirements analyst. Your job is to read a developer's task
 description and extract a structured list of concrete, verifiable requirements.
 
@@ -46,13 +26,19 @@ Rules:
 - Only extract requirements explicitly stated or strongly implied by the task.
   Do NOT invent requirements that are not in the task.
 - Each requirement must be specific enough to check against code.
-- "Add support for X" is not a requirement. "Create endpoint POST /X" is.
+  "Add support for X" is not a requirement. "Create endpoint POST /X" is.
 - expected_test_cases should cover success paths, failure paths, and edge cases.
-- risk_domains should be short labels like: file_upload, auth, database, payments,
+- risk_domains should be short labels: file_upload, auth, database, payments,
   storage, security, api, config, email.
 
-Return ONLY a JSON object matching this schema:
-{_schema(RequirementsOutput)}
+Return ONLY a valid JSON object with exactly these fields:
+
+{
+  "goal": "<one-sentence summary of the task>",
+  "requirements": ["<concrete requirement 1>", "<concrete requirement 2>"],
+  "expected_test_cases": ["<test case 1>", "<test case 2>"],
+  "risk_domains": ["<domain1>", "<domain2>"]
+}
 """
 
 
@@ -64,7 +50,7 @@ def step1_user(task_text: str) -> str:
 # Step 2 — Summarise the diff
 # ---------------------------------------------------------------------------
 
-STEP2_SYSTEM = f"""\
+STEP2_SYSTEM = """\
 You are a code change analyst. Your job is to read a unified diff and produce a
 structured summary of what changed.
 
@@ -77,8 +63,14 @@ Rules:
   likely task (e.g. a style tweak in an unrelated component).
   Return an empty list if all changes appear relevant.
 
-Return ONLY a JSON object matching this schema:
-{_schema(DiffSummaryOutput)}
+Return ONLY a valid JSON object with exactly these fields:
+
+{
+  "change_summary": "<one or two sentences describing what changed>",
+  "implemented_areas": ["<path/to/file.py — what changed>"],
+  "possible_side_effects": ["<side effect>"],
+  "unrelated_changes": []
+}
 """
 
 
@@ -93,7 +85,7 @@ def step2_user(diff_text: str, max_chars: int = 60_000) -> str:
 # Step 3 — Verify a single requirement
 # ---------------------------------------------------------------------------
 
-STEP3_SYSTEM = f"""\
+STEP3_SYSTEM = """\
 You are a code reviewer verifying whether a specific requirement was implemented.
 You are given one requirement and the relevant code diff and context.
 
@@ -113,8 +105,14 @@ Status values:
   unclear               — diff is ambiguous or context is insufficient
   out_of_scope_change   — a change was made that is unrelated to this requirement
 
-Return ONLY a JSON object matching this schema:
-{_schema(VerificationResult)}
+Return ONLY a valid JSON object with exactly these fields:
+
+{
+  "requirement": "<the exact requirement text>",
+  "status": "<satisfied|partially_satisfied|missing|unclear|out_of_scope_change>",
+  "evidence": ["<path/to/file.py:42 — description>"],
+  "reason": "<explanation citing specific code>"
+}
 """
 
 
@@ -133,7 +131,7 @@ def step3_user(
 # Step 4 — Detect risks
 # ---------------------------------------------------------------------------
 
-STEP4_SYSTEM = f"""\
+STEP4_SYSTEM = """\
 You are a security and quality reviewer. Your job is to identify risks in a code
 diff that a developer should know about before merging.
 
@@ -148,8 +146,20 @@ Rules:
   config, dependency, bug_risk, out_of_scope.
 - Severities: info, warning, error, critical.
 
-Return ONLY a JSON object matching this schema:
-{_schema(RiskAssessmentOutput)}
+Return ONLY a valid JSON object with exactly this structure:
+
+{
+  "risks": [
+    {
+      "category": "<task_alignment|missing_test|security|database|api_contract|config|dependency|bug_risk|out_of_scope>",
+      "severity": "<info|warning|error|critical>",
+      "title": "<short title>",
+      "description": "<detailed explanation>",
+      "file_path": "<path/to/file.py or null>",
+      "evidence": "<specific quote or reference from the diff>"
+    }
+  ]
+}
 """
 
 
@@ -171,7 +181,7 @@ def step4_user(
 # Step 5 — Generate final report sections
 # ---------------------------------------------------------------------------
 
-STEP5_SYSTEM = f"""\
+STEP5_SYSTEM = """\
 You are a technical writer producing the final sections of a merge-readiness report.
 You are given structured data from earlier analysis steps.
 
@@ -186,8 +196,13 @@ Rules:
     needs_changes        — missing requirements or high risk, fix before merging
     do_not_merge         — critical risk or security issue present
 
-Return ONLY a JSON object matching this schema:
-{_schema(FinalReportSections)}
+Return ONLY a valid JSON object with exactly these fields:
+
+{
+  "executive_summary": "<2-4 sentences: what was built, what was missed, is it ready>",
+  "suggested_fixes": ["<specific fix 1>", "<specific fix 2>"],
+  "merge_recommendation": "<ready|ready_with_comments|needs_changes|do_not_merge>"
+}
 """
 
 

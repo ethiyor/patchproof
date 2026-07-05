@@ -649,3 +649,4 @@ cat patchproof-report.md
 
 Run the CLI on a real diff from one of your other projects (ResearchOS, Repofy, PaperMind). Verify the report is accurate, fix any edge cases, and make the first real commit.
 # test change
+

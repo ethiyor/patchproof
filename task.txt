@@ -1,1 +1,1 @@
-Update WHAT_WAS_BUILT to mark Phase 2 as complete
+Test the full LLM pipeline end-to-end with a real API call

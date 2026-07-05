@@ -9,7 +9,78 @@ This file always shows the **latest** milestone. All previous milestones are arc
 | 1.3 — Diff Parser | [notes/1.3_diff_parser.md](notes/1.3_diff_parser.md) |
 | 1.4 — Risk Scorer | [notes/1.4_risk_scorer.md](notes/1.4_risk_scorer.md) |
 | 1.5 — Report Generator | [notes/1.5_report_generator.md](notes/1.5_report_generator.md) |
-| **1.6 — End-to-End Test** | **current** |
+| 1.6 — End-to-End Test | [notes/1.6_end_to_end.md](notes/1.6_end_to_end.md) |
+| **2.1 — LLM Client** | **current** |
+
+---
+
+## Current: Phase 2 — Milestone 2.1 — LLM Client Setup
+
+### What was built
+
+A reusable, testable OpenAI wrapper in `llm/client.py`. It handles JSON mode, temperature, retry logic, token usage logging, and API key security. All 5 pipeline steps will call `call_llm()` — this is the foundation they all share.
+
+### Files created
+
+| File | Purpose |
+|---|---|
+| `llm/client.py` | `call_llm(messages) → dict` — OpenAI wrapper |
+| `tests/mocks/llm_responses.py` | Fixture dicts for all 5 LLM pipeline steps |
+| `tests/unit/test_llm_client.py` | 15 tests — 0 real API calls |
+
+---
+
+## How `call_llm` works
+
+```python
+from llm.client import call_llm
+
+result = call_llm([
+    {"role": "system", "content": "Extract requirements as JSON."},
+    {"role": "user", "content": "Add PDF upload support with MIME validation."},
+])
+# result is a parsed Python dict
+```
+
+Every call uses:
+- `response_format={"type": "json_object"}` — forces the model to always return valid JSON
+- `temperature=0.1` — near-deterministic output
+- `model="gpt-4o"` — configurable per call
+
+### Retry logic
+
+Three retryable error types:
+
+| Error | Delay | Why retryable |
+|---|---|---|
+| `APIConnectionError` | 2s | Transient network blip |
+| `RateLimitError` | 5s | Temporary quota exceeded |
+| `json.JSONDecodeError` | 2s | Model returned malformed JSON (rare) |
+
+`AuthenticationError` and other `APIError` subclasses are **not retried** — they indicate a programming error (wrong key, bad request), not a transient failure.
+
+### Security rule
+
+The full `OPENAI_API_KEY` is never logged. Only the first 4 characters appear in debug output: `sk-****`. This is tested explicitly in `TestApiKeySecurity`.
+
+### How mocking works in tests
+
+```python
+from unittest.mock import patch
+
+with patch("llm.client.OpenAI") as mock_openai:
+    mock_openai.return_value.chat.completions.create.return_value = mock_response
+    result = call_llm([...])
+    # call_llm ran — no real HTTP request made
+```
+
+`patch("llm.client.OpenAI")` replaces the `OpenAI` class inside `llm/client.py` with a `MagicMock`. When `_make_client()` calls `OpenAI(api_key=...)`, it gets the mock instead. All chained attribute accesses (`client.chat.completions.create(...)`) return whatever you set up. The real OpenAI SDK is never invoked.
+
+---
+
+## What comes next — Milestone 2.2
+
+Define Pydantic models for all 5 LLM response shapes in `models/llm_outputs.py`. These will validate every response from `call_llm` before it enters the pipeline — if the LLM returns an unexpected shape, the error is caught immediately with a clear message.
 
 ---
 

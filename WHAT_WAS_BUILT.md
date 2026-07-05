@@ -6,7 +6,104 @@ This file always shows the **latest** milestone. All previous milestones are arc
 |---|---|
 | 1.1 – 1.6 | [notes/](notes/) |
 | 2.1 — LLM Client | previous |
-| **2.2 — LLM Output Models** | **current** |
+| 2.2 — LLM Output Models | previous |
+| **2.3 — Task Analyzer** | **current** |
+
+---
+
+## Current: Phase 2 — Milestone 2.3 — Task Analyzer (LLM Step 1)
+
+### What was built
+
+The first real prompt. `analyze_task(task_text)` sends the task description to GPT-4o and returns a validated `RequirementsOutput` — a structured list of requirements, expected test cases, and risk domains. The prompt lives in `llm/prompts.py`.
+
+### Files created
+
+| File | Purpose |
+|---|---|
+| `llm/prompts.py` | System + user prompt templates for all 5 pipeline steps |
+| `core/task_analyzer.py` | `analyze_task(task_text) → RequirementsOutput` |
+| `tests/unit/test_task_analyzer.py` | 13 tests — 0 real API calls |
+
+---
+
+## What `llm/prompts.py` contains
+
+Five pairs of prompts — one `SYSTEM` constant and one `user()` function per step:
+
+| Step | System prompt purpose | User template |
+|---|---|---|
+| `STEP1_SYSTEM` + `step1_user()` | Requirements analyst | Wraps the task text |
+| `STEP2_SYSTEM` + `step2_user()` | Code change analyst | Wraps the diff text |
+| `STEP3_SYSTEM` + `step3_user()` | Code reviewer | Wraps one requirement + diff hunk + context |
+| `STEP4_SYSTEM` + `step4_user()` | Security reviewer | Wraps risk flags + changed files + diff summary |
+| `STEP5_SYSTEM` + `step5_user()` | Technical writer | Wraps all structured results |
+
+Every system prompt:
+1. Defines the model's role
+2. States the hallucination-reduction rules explicitly (*"only extract what is in the task"*)
+3. Embeds the **full JSON schema** of the expected output model — generated from the Pydantic model with `model.model_json_schema()`
+
+That third point is key: the model sees the exact field names, types, and descriptions it needs to populate. It's not guessing the format.
+
+---
+
+## What `analyze_task` does
+
+```python
+from core.task_analyzer import analyze_task
+
+result = analyze_task("Add PDF upload with MIME validation and 10MB limit.")
+print(result.requirements)
+# ["Create POST /papers/upload endpoint",
+#  "Validate MIME type — accept only application/pdf",
+#  "Enforce a 10MB file size limit", ...]
+```
+
+Internally:
+1. Builds `[system_message, user_message]` from `llm/prompts.py`
+2. Calls `call_llm(messages)` → gets a raw dict back
+3. Passes the dict to `RequirementsOutput(**raw)` → Pydantic validates every field
+4. Checks that `requirements` is not empty
+5. If step 3 or 4 fails, logs a warning and retries once with the same messages
+6. If both attempts fail, raises `RuntimeError` with a user-facing message
+
+---
+
+## How prompts embed the JSON schema
+
+```python
+def _schema(model) -> str:
+    return json.dumps(model.model_json_schema(), indent=2)
+
+STEP1_SYSTEM = f"""
+...
+Return ONLY a JSON object matching this schema:
+{_schema(RequirementsOutput)}
+"""
+```
+
+`model_json_schema()` is a Pydantic v2 method that generates a JSON Schema dict from the model's field types and descriptions. The LLM sees something like:
+
+```json
+{
+  "properties": {
+    "requirements": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Concrete, checkable requirements extracted from the task..."
+    }
+  }
+}
+```
+
+This is what makes the `Field(description=...)` annotations from milestone 2.2 useful — they flow directly into the prompt.
+
+---
+
+## What comes next — Milestone 2.4
+
+Build `core/diff_summarizer.py` — LLM Step 2. It takes the parsed diff and returns a `DiffSummaryOutput` describing what changed in plain language. After 2.4, the pipeline will know both what *should* have been done (Step 1) and what *was* done (Step 2).
 
 ---
 

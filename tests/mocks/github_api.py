@@ -15,8 +15,12 @@ Usage in tests:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import respx
 import httpx
+
+_FIXTURES = Path(__file__).parent.parent / "fixtures" / "sample_diffs"
 
 # ---------------------------------------------------------------------------
 # Response body fixtures
@@ -39,19 +43,7 @@ PR_METADATA_RESPONSE = {
     "head": {"ref": "feat/pdf-upload"},
 }
 
-PR_DIFF_RESPONSE = """\
-diff --git a/backend/routes/upload.py b/backend/routes/upload.py
-new file mode 100644
-index 0000000..a1b2c3d
---- /dev/null
-+++ b/backend/routes/upload.py
-@@ -0,0 +1,10 @@
-+from fastapi import UploadFile
-+
-+async def upload_paper(file: UploadFile):
-+    content = await file.read()
-+    return {"paper_id": "abc123"}
-"""
+PR_DIFF_RESPONSE = (_FIXTURES / "github_pr.diff").read_text(encoding="utf-8")
 
 ISSUE_RESPONSE = {
     "number": 10,

@@ -9,6 +9,7 @@ from models.github_models import PRMetadata
 from tests.mocks.github_api import (
     USER_RESPONSE,
     PR_METADATA_RESPONSE,
+    PR_DIFF_RESPONSE,
     ISSUE_RESPONSE,
     mock_get_user,
     mock_pr_metadata,
@@ -261,3 +262,70 @@ class TestFetchPrMetadata:
         # Should not raise — linked_issue_body just stays None
         result = client.fetch_pr_metadata("ethiyor", "patchproof", 42)
         assert result.linked_issue_body is None
+
+
+# ---------------------------------------------------------------------------
+# fetch_pr_diff
+# ---------------------------------------------------------------------------
+
+class TestFetchPrDiff:
+    @respx.mock
+    def test_returns_raw_diff_string(self):
+        respx.get("https://api.github.com/repos/ethiyor/patchproof/pulls/42").mock(
+            return_value=httpx.Response(200, text=PR_DIFF_RESPONSE)
+        )
+        client = GitHubClient("ghp_fake")
+        result = client.fetch_pr_diff("ethiyor", "patchproof", 42)
+        assert isinstance(result, str)
+        assert result.startswith("diff --git")
+
+    @respx.mock
+    def test_diff_contains_expected_files(self):
+        respx.get("https://api.github.com/repos/ethiyor/patchproof/pulls/42").mock(
+            return_value=httpx.Response(200, text=PR_DIFF_RESPONSE)
+        )
+        client = GitHubClient("ghp_fake")
+        result = client.fetch_pr_diff("ethiyor", "patchproof", 42)
+        assert "backend/routes/papers.py" in result
+        assert "migrations/003_create_papers.sql" in result
+
+    @respx.mock
+    def test_sends_diff_accept_header(self):
+        respx.get("https://api.github.com/repos/ethiyor/patchproof/pulls/42").mock(
+            return_value=httpx.Response(200, text=PR_DIFF_RESPONSE)
+        )
+        client = GitHubClient("ghp_fake")
+        client.fetch_pr_diff("ethiyor", "patchproof", 42)
+        assert respx.calls.last.request.headers["accept"] == "application/vnd.github.diff"
+
+    @respx.mock
+    def test_empty_diff_returns_empty_string(self):
+        respx.get("https://api.github.com/repos/ethiyor/patchproof/pulls/99").mock(
+            return_value=httpx.Response(200, text="")
+        )
+        client = GitHubClient("ghp_fake")
+        result = client.fetch_pr_diff("ethiyor", "patchproof", 99)
+        assert result == ""
+
+    @respx.mock
+    def test_whitespace_only_diff_returns_empty_string(self):
+        respx.get("https://api.github.com/repos/ethiyor/patchproof/pulls/99").mock(
+            return_value=httpx.Response(200, text="   \n  \n")
+        )
+        client = GitHubClient("ghp_fake")
+        result = client.fetch_pr_diff("ethiyor", "patchproof", 99)
+        assert result == ""
+
+    @respx.mock
+    def test_fixture_diff_is_parseable(self):
+        """The github_pr.diff fixture should parse cleanly with parse_diff."""
+        from core.diff_parser import parse_diff
+        respx.get("https://api.github.com/repos/ethiyor/patchproof/pulls/42").mock(
+            return_value=httpx.Response(200, text=PR_DIFF_RESPONSE)
+        )
+        client = GitHubClient("ghp_fake")
+        raw = client.fetch_pr_diff("ethiyor", "patchproof", 42)
+        parsed = parse_diff(raw)
+        assert parsed.total_files == 4
+        assert parsed.total_additions > 0
+        assert any("migration" in f for f in parsed.risky_files)

@@ -137,6 +137,19 @@ class GitHubClient:
         )
 
 
+    def fetch_pr_diff(self, owner: str, repo: str, pr_number: int) -> str:
+        """
+        Fetch the raw unified diff for a pull request.
+
+        Uses the ``application/vnd.github.diff`` media type which returns the
+        complete diff text in one response (no pagination). Returns an empty
+        string if the PR has no file changes.
+        """
+        path = f"/repos/{owner}/{repo}/pulls/{pr_number}"
+        diff = self.get_diff(path)
+        return diff if diff and diff.strip() else ""
+
+
 # ---------------------------------------------------------------------------
 # URL parsing
 # ---------------------------------------------------------------------------

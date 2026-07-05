@@ -1,0 +1,100 @@
+diff --git a/backend/routes/papers.py b/backend/routes/papers.py
+new file mode 100644
+index 0000000..a1b2c3d
+--- /dev/null
++++ b/backend/routes/papers.py
+@@ -0,0 +1,28 @@
++from fastapi import APIRouter, UploadFile, File, HTTPException
++from backend.services.storage import StorageService
++from backend.models.paper import Paper
++
++router = APIRouter(prefix="/papers", tags=["papers"])
++storage = StorageService()
++
++
++@router.post("/upload")
++async def upload_paper(file: UploadFile = File(...)):
++    """Upload a paper PDF."""
++    content = await file.read()
++    paper = await storage.save(file.filename, content)
++    return {"paper_id": str(paper.id), "filename": paper.filename}
++
++
++@router.get("/{paper_id}")
++async def get_paper(paper_id: str):
++    """Retrieve a paper by ID."""
++    paper = await storage.get(paper_id)
++    if not paper:
++        raise HTTPException(status_code=404, detail="Paper not found")
++    return paper
++
++
++@router.delete("/{paper_id}")
++async def delete_paper(paper_id: str):
++    """Delete a paper."""
++    await storage.delete(paper_id)
++    return {"deleted": True}
+diff --git a/backend/models/paper.py b/backend/models/paper.py
+new file mode 100644
+index 0000000..b2c3d4e
+--- /dev/null
++++ b/backend/models/paper.py
+@@ -0,0 +1,12 @@
++from pydantic import BaseModel
++from uuid import UUID
++from datetime import datetime
++
++
++class Paper(BaseModel):
++    id: UUID
++    filename: str
++    size_bytes: int
++    uploaded_at: datetime
++    uploader_id: str
++    content_type: str
+diff --git a/migrations/003_create_papers.sql b/migrations/003_create_papers.sql
+new file mode 100644
+index 0000000..c3d4e5f
+--- /dev/null
++++ b/migrations/003_create_papers.sql
+@@ -0,0 +1,10 @@
++-- Migration: create papers table
++CREATE TABLE papers (
++    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
++    filename    TEXT NOT NULL,
++    size_bytes  INTEGER NOT NULL,
++    content_type TEXT NOT NULL,
++    uploader_id TEXT NOT NULL,
++    uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now()
++);
++CREATE INDEX idx_papers_uploader ON papers(uploader_id);
+diff --git a/frontend/components/PaperUpload.tsx b/frontend/components/PaperUpload.tsx
+new file mode 100644
+index 0000000..d4e5f6a
+--- /dev/null
++++ b/frontend/components/PaperUpload.tsx
+@@ -0,0 +1,22 @@
++import React, { useState } from "react";
++import axios from "axios";
++
++export const PaperUpload: React.FC = () => {
++  const [uploading, setUploading] = useState(false);
++
++  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
++    const file = e.target.files?.[0];
++    if (!file) return;
++    setUploading(true);
++    const form = new FormData();
++    form.append("file", file);
++    try {
++      const res = await axios.post("/api/papers/upload", form);
++      console.log("Uploaded:", res.data.id);
++    } catch (err) {
++      console.error(err);
++    } finally {
++      setUploading(false);
++    }
++  };
++
++  return <input type="file" onChange={handleUpload} disabled={uploading} />;
++};

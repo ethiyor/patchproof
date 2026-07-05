@@ -4,13 +4,82 @@ This file always shows the **latest** milestone. All previous milestones are arc
 
 | Milestone | Note |
 |---|---|
-| 1.1 — Scaffolding | [notes/1.1_scaffolding.md](notes/1.1_scaffolding.md) |
-| 1.2 — Git Diff Collection | [notes/1.2_git_diff.md](notes/1.2_git_diff.md) |
-| 1.3 — Diff Parser | [notes/1.3_diff_parser.md](notes/1.3_diff_parser.md) |
-| 1.4 — Risk Scorer | [notes/1.4_risk_scorer.md](notes/1.4_risk_scorer.md) |
-| 1.5 — Report Generator | [notes/1.5_report_generator.md](notes/1.5_report_generator.md) |
-| 1.6 — End-to-End Test | [notes/1.6_end_to_end.md](notes/1.6_end_to_end.md) |
-| **2.1 — LLM Client** | **current** |
+| 1.1 – 1.6 | [notes/](notes/) |
+| 2.1 — LLM Client | previous |
+| **2.2 — LLM Output Models** | **current** |
+
+---
+
+## Current: Phase 2 — Milestone 2.2 — Pydantic Output Models
+
+### What was built
+
+Strict Pydantic models for every shape that comes back from the LLM. Every pipeline step validates its output against one of these models before moving on. If the LLM returns a wrong type, a missing field, or violates the evidence rule, a `ValidationError` is raised immediately.
+
+### Files created
+
+| File | What's in it |
+|---|---|
+| `models/llm_outputs.py` | 7 models for all 5 pipeline steps |
+| `tests/unit/test_llm_models.py` | 28 tests |
+
+---
+
+## The 7 Models
+
+| Model | Step | Key constraint |
+|---|---|---|
+| `RequirementsOutput` | 1 | `requirements` must be a list of strings |
+| `DiffSummaryOutput` | 2 | `change_summary` required |
+| `VerificationResult` | 3 | `satisfied`/`partially_satisfied` require non-empty `evidence` |
+| `RiskFinding` | 4 | `category` and `severity` are `Literal` enums |
+| `RiskAssessmentOutput` | 4 | Wraps a list of `RiskFinding` |
+| `FinalReportSections` | 5 | `merge_recommendation` is a `Literal` enum |
+
+---
+
+## The Evidence Rule (most important constraint)
+
+`VerificationResult` has a `@model_validator` that enforces the core PatchProof principle:
+
+```python
+@model_validator(mode="after")
+def _evidence_required_when_satisfied(self) -> "VerificationResult":
+    if self.status in ("satisfied", "partially_satisfied") and not self.evidence:
+        raise ValueError(
+            "status='satisfied' requires at least one evidence citation."
+        )
+    return self
+```
+
+**Why:** The LLM can claim a requirement is satisfied even when it isn't. Requiring a file:line citation forces the model to point to something concrete in the diff. If it can't find evidence, it must use `unclear` or `missing` instead. This is what separates PatchProof from vague AI PR comments.
+
+---
+
+## `Field(description=...)` — Why It Matters
+
+Every field has a `description` annotation:
+
+```python
+evidence: Annotated[
+    list[str],
+    Field(
+        description=(
+            "File:line citations that support this status. "
+            "Required when status is 'satisfied' or 'partially_satisfied'. "
+            "Format: 'path/to/file.py:42 — brief description'."
+        )
+    ),
+]
+```
+
+These descriptions are not just for human readers. When we generate a JSON schema from the model (which we send to the LLM as part of the prompt), the descriptions tell the model exactly what format and content each field expects. Better descriptions → fewer malformed responses → fewer retries.
+
+---
+
+## What comes next — Milestone 2.3
+
+Write `llm/prompts.py` (the actual text sent to GPT-4o for Step 1) and `core/task_analyzer.py` (which calls it and validates the response). After 2.3, running the CLI will extract a real structured requirement list from `task.txt` using the LLM.
 
 ---
 

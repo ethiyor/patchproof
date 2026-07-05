@@ -6,9 +6,78 @@ This file always shows the **latest** milestone. All previous milestones are arc
 |---|---|
 | 1.1 – 1.6 | [notes/](notes/) |
 | 2.1 — LLM Client | previous |
-| 2.4 — Diff Summarizer | previous |
 | 2.5 — Verification Engine | previous |
-| **2.6 — Test Adequacy Checker** | **current** |
+| 2.6 — Test Adequacy Checker | previous |
+| **2.7 — Pipeline + Full Report** | **current** |
+
+---
+
+## Current: Phase 2 — Milestone 2.7 — Pipeline + Full Report ✅
+
+### Phase 2 is complete.
+
+All 5 pipeline steps are wired together. `patchproof review --task task.txt` now produces a full 11-section LLM-augmented report when `OPENAI_API_KEY` is set, and falls back to the Phase 1 basic report when it isn't.
+
+### Files created / modified
+
+| File | What changed |
+|---|---|
+| `llm/pipeline.py` | New — `run_pipeline()` orchestrates all 5 steps |
+| `core/report_generator.py` | Added `generate_full_report()` + `write_full_report()` |
+| `cli/main.py` | Updated — calls pipeline when API key present, falls back to Phase 1 |
+| `tests/unit/test_full_report.py` | New — 22 tests |
+
+---
+
+### What the full report contains (11 sections)
+
+```
+1.  Header                   ← repo, branch, task, timestamp
+2.  Executive Summary        ← 2–4 sentence LLM prose
+3.  Merge Readiness          ← rule-based risk score + LLM recommendation
+4.  Task Completion Checklist ← ✅/⚠️/❌/❓ per requirement with evidence
+5.  Risk Score Details       ← bullet list of rules that fired
+6.  Risky Files              ← table of files with risk flags
+7.  Missing Tests            ← [ ] / [x] per expected test case
+8.  Possible Bugs & Risks    ← LLM risk findings with severity + evidence
+9.  Changed Files            ← table of all files
+10. Suggested Fixes          ← LLM-generated action list
+11. Final Recommendation     ← ✅ / ⚠️ / 🚫 with label
+```
+
+### How the pipeline is wired
+
+```python
+from llm.pipeline import run_pipeline
+
+result = run_pipeline(
+    task_text=task_text,
+    diff_text=diff_result.raw,
+    parsed_diff=parsed,
+    risk=risk,
+)
+# result.requirements, .diff_summary, .verification_results,
+# .risk_assessment, .test_results, .report_sections
+```
+
+The CLI checks for `OPENAI_API_KEY` at runtime:
+- Set → `run_pipeline()` → `write_full_report()`
+- Not set → `write_report()` (Phase 1 basic report with placeholders)
+
+### Graceful degradation
+
+Every pipeline step has a fallback so one failure never kills the whole run:
+- Step 2 (summariser) fails → empty summary stub, pipeline continues
+- Step 4 (risks) fails → empty risks list, pipeline continues
+- Step 5 (sections) fails → minimal fallback with rule-based recommendation
+
+---
+
+## What comes next — Phase 3, Milestone 3.1
+
+Add the GitHub REST API client so `patchproof review-pr <url>` can fetch real PR diffs from GitHub without staging anything locally.
+
+See [docs/phases/phase_03_github_pr.md](docs/phases/phase_03_github_pr.md).
 
 ---
 
@@ -579,3 +648,4 @@ cat patchproof-report.md
 ## What comes next — Milestone 1.6
 
 Run the CLI on a real diff from one of your other projects (ResearchOS, Repofy, PaperMind). Verify the report is accurate, fix any edge cases, and make the first real commit.
+# test change

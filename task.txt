@@ -1,1 +1,1 @@
-Set up the PatchProof project scaffolding with a working CLI entrypoint
+Add a README.md with project overview, quick start instructions, usage examples, output format description, development phase table, project structure, and test instructions.

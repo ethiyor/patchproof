@@ -1,5 +1,6 @@
 from pathlib import Path
 from dataclasses import dataclass
+import subprocess
 
 import git
 from git.exc import InvalidGitRepositoryError
@@ -95,14 +96,40 @@ def collect_diff(
         raw = repo.git.diff("--cached")
     else:
         try:
-            raw = repo.git.diff("HEAD")
+            tracked = repo.git.diff("HEAD")
         except git.GitCommandError as exc:
             # Brand-new repo with no commits yet — HEAD doesn't exist.
-            # Fall back to showing staged changes vs the empty tree.
             if "unknown revision" in str(exc).lower() or "ambiguous argument" in str(exc).lower():
-                raw = repo.git.diff("--cached")
+                tracked = repo.git.diff("--cached")
             else:
                 raise
+
+        # git diff HEAD misses brand-new untracked files entirely.
+        # For each untracked file, produce a synthetic "new file" diff by
+        # running git diff --no-index via subprocess (avoids GitCommandError
+        # quirks and path-formatting issues).
+        untracked_parts: list[str] = []
+        for rel_path in repo.untracked_files:
+            abs_path = Path(repo.working_dir) / rel_path
+            if not abs_path.is_file():
+                continue  # skip directories
+            result = subprocess.run(
+                ["git", "diff", "--no-index", "--", "/dev/null", str(abs_path)],
+                capture_output=True,
+                text=True,
+                cwd=repo.working_dir,
+            )
+            part = result.stdout
+            if not part.strip():
+                continue
+            # git diff --no-index uses the absolute path; replace with the
+            # repo-relative path so the diff parser sees normal paths.
+            abs_str = str(abs_path).lstrip("/")
+            part = part.replace(f"a/{abs_str}", f"a/{rel_path}")
+            part = part.replace(f"b/{abs_str}", f"b/{rel_path}")
+            untracked_parts.append(part)
+
+        raw = "\n".join(filter(None, [tracked] + untracked_parts))
 
     if not raw.strip():
         typer.echo("No changes detected. Make some edits or stage some files first.", err=True)

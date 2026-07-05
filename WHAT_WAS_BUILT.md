@@ -7,7 +7,60 @@ This file always shows the **latest** milestone. All previous milestones are arc
 | 1.1 – 1.6 | [notes/](notes/) |
 | 2.1 — LLM Client | previous |
 | 2.2 — LLM Output Models | previous |
-| **2.3 — Task Analyzer** | **current** |
+| 2.3 — Task Analyzer | previous |
+| **2.4 — Diff Summarizer** | **current** |
+
+---
+
+## Current: Phase 2 — Milestone 2.4 — Diff Summarizer (LLM Step 2)
+
+### What was built
+
+`summarize_diff(diff_text)` — sends the raw git diff to GPT-4o and returns a `DiffSummaryOutput`: a prose summary of what changed, which areas were implemented, possible side effects, and any unrelated changes spotted.
+
+### Files created
+
+| File | Purpose |
+|---|---|
+| `core/diff_summarizer.py` | `summarize_diff(diff_text: str) → DiffSummaryOutput` |
+| `tests/unit/test_diff_summarizer.py` | 12 tests |
+
+The Step 2 prompt (`STEP2_SYSTEM` + `step2_user()`) was already written in milestone 2.3.
+
+---
+
+### Large diff handling
+
+Diffs can be huge. `step2_user()` truncates anything over 60,000 characters and appends `[diff truncated]` so the LLM knows context is missing:
+
+```python
+def step2_user(diff_text: str, max_chars: int = 60_000) -> str:
+    truncated = diff_text[:max_chars]
+    if len(diff_text) > max_chars:
+        truncated += "\n\n[diff truncated — remaining files not shown]"
+    return f"Unified diff:\n\n{truncated}"
+```
+
+This is the MVP approach. A more sophisticated version would summarize each file independently and merge — but truncation is correct enough for most real PRs.
+
+---
+
+### What the pipeline knows now
+
+After Steps 1 + 2 complete, the pipeline holds:
+
+```
+RequirementsOutput  ← what SHOULD have been done (from task.txt)
+DiffSummaryOutput   ← what WAS done (from the diff)
+```
+
+Step 3 (next) compares these two directly — for each requirement, it asks "is there evidence of this in the diff?"
+
+---
+
+## What comes next — Milestone 2.5
+
+Build `core/verification_engine.py` — LLM Step 3. For each requirement from Step 1, send it alongside the relevant diff hunk and ask the model whether it's `satisfied`, `missing`, `partially_satisfied`, or `unclear`. This is the core of what makes PatchProof different from a generic PR reviewer.
 
 ---
 

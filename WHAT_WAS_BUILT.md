@@ -6,9 +6,72 @@ This file always shows the **latest** milestone. All previous milestones are arc
 |---|---|
 | 1.1 – 1.6 | [notes/](notes/) |
 | 2.1 — LLM Client | previous |
-| 2.3 — Task Analyzer | previous |
 | 2.4 — Diff Summarizer | previous |
-| **2.5 — Verification Engine** | **current** |
+| 2.5 — Verification Engine | previous |
+| **2.6 — Test Adequacy Checker** | **current** |
+
+---
+
+## Current: Phase 2 — Milestone 2.6 — Test Adequacy Checker
+
+### What was built
+
+`check_test_adequacy(expected_test_cases, diff)` — cross-references the expected test cases from Step 1 against the test files in the diff. No LLM — pure heuristic keyword matching. Returns one `TestCaseResult` per expected case with status `present` or `missing`.
+
+### Files created
+
+| File | Purpose |
+|---|---|
+| `core/test_checker.py` | `check_test_adequacy(cases, diff) → list[TestCaseResult]` |
+| `tests/unit/test_test_checker.py` | 12 tests |
+
+---
+
+### Algorithm
+
+```
+1. No test files changed in diff?
+   → all cases are "missing" immediately (fast path)
+
+2. Otherwise:
+   → collect all addition lines (+) from test file hunks into one searchable blob
+   → for each expected test case:
+       extract keywords (words ≥ 4 chars, excluding stop words)
+       count keyword matches in the blob
+       if matches ≥ 2 → "present"
+       else           → "missing"
+```
+
+### Why keyword matching instead of the LLM?
+
+- It's fast — no API call, no latency
+- It's deterministic — same diff always produces the same result
+- It's good enough for the MVP signal: "did anyone write a test touching these concepts?"
+- The LLM in Step 4 (risk assessment) already flags missing tests at a higher level
+
+The checker is intentionally conservative: 2+ keyword matches required, stop words excluded. A test for "valid PDF upload returns 200 with paper_id" needs at least 2 of `[valid, upload, returns, paper_id]` to appear in the test additions.
+
+### Fix: `__test__ = False`
+
+The dataclass was named `TestCaseResult`. Pytest tried to collect it as a test class because the name starts with `Test`. Adding `__test__ = False` tells pytest to skip it — the recommended way to suppress this for non-test classes whose names start with `Test`.
+
+---
+
+### Pipeline status
+
+| Step | Module | Status |
+|---|---|---|
+| 1 — Extract requirements | `core/task_analyzer.py` | ✅ |
+| 2 — Summarise diff | `core/diff_summarizer.py` | ✅ |
+| 3 — Verify each requirement | `core/verification_engine.py` | ✅ |
+| 4 — Test adequacy | `core/test_checker.py` | ✅ |
+| 5 — Wire everything + update report | `llm/pipeline.py` | 🔜 next |
+
+---
+
+## What comes next — Milestone 2.7
+
+Wire all 5 steps together in `llm/pipeline.py` and update `core/report_generator.py` to consume the LLM outputs — producing a report with a real requirement checklist, missing tests section, and suggested fixes instead of the Phase 2 placeholders.
 
 ---
 

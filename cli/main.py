@@ -1,10 +1,11 @@
 import typer
 from pathlib import Path
 
+from cli.config_loader import get_openai_api_key
 from cli.git_client import collect_diff
 from core.diff_parser import parse_diff
 from core.risk_scorer import compute_risk
-from core.report_generator import write_report
+from core.report_generator import write_report, write_full_report
 
 app = typer.Typer(
     name="patchproof",
@@ -53,14 +54,34 @@ def review(
 
     typer.echo(f"Risk    : {risk}")
 
-    write_report(
-        diff=parsed,
-        risk=risk,
-        task_text=task_text,
-        repo_name=diff_result.repo_name,
-        branch=diff_result.branch,
-        output=output,
-    )
+    if get_openai_api_key():
+        from llm.pipeline import run_pipeline
+        typer.echo("Running LLM pipeline...")
+        pipeline_result = run_pipeline(
+            task_text=task_text,
+            diff_text=diff_result.raw,
+            parsed_diff=parsed,
+            risk=risk,
+        )
+        write_full_report(
+            diff=parsed,
+            risk=risk,
+            task_text=task_text,
+            repo_name=diff_result.repo_name,
+            branch=diff_result.branch,
+            pipeline_result=pipeline_result,
+            output=output,
+        )
+    else:
+        typer.echo("Note: OPENAI_API_KEY not set — writing basic report (Phase 1).", err=True)
+        write_report(
+            diff=parsed,
+            risk=risk,
+            task_text=task_text,
+            repo_name=diff_result.repo_name,
+            branch=diff_result.branch,
+            output=output,
+        )
 
     typer.echo(f"Report  : {output}  ✓")
 

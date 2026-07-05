@@ -5,10 +5,51 @@ This file always shows the **latest** milestone. All previous milestones are arc
 | Milestone | Note |
 |---|---|
 | 1.1 – 1.6 | [notes/](notes/) |
-| 2.1 — LLM Client | previous |
-| 2.5 — Verification Engine | previous |
-| 2.6 — Test Adequacy Checker | previous |
-| **2.7 — Pipeline + Full Report** | **current** |
+| 2.1 – 2.7 — LLM Pipeline | previous |
+| 3.1 – 3.5 — GitHub PR | previous |
+| **4.1 — FastAPI Scaffold** | **current** |
+
+---
+
+## Current: Phase 4 — Milestone 4.1 — FastAPI App Scaffold
+
+### What was built
+
+A running FastAPI backend with a health endpoint and a typed configuration system. The foundation all Phase 4 API routes will attach to.
+
+```
+backend/
+  __init__.py
+  main.py         ← FastAPI app + lifespan context manager
+  config.py       ← pydantic-settings Settings class
+  api/
+    __init__.py
+    health.py     ← GET /health → {"status": "ok"}
+```
+
+### How to run it
+
+```bash
+source .venv/bin/activate
+uvicorn backend.main:app --reload
+# → http://localhost:8000/health    {"status": "ok"}
+# → http://localhost:8000/docs      Swagger UI (auto-generated)
+```
+
+### Key concepts learned — see [notes/4.1_fastapi_scaffold.md](notes/4.1_fastapi_scaffold.md)
+
+| Concept | Summary |
+|---|---|
+| **FastAPI** | Python web framework; `@app.get("/path")` registers a route |
+| **async/await** | Non-blocking I/O — one event loop handles all concurrent requests |
+| **Lifespan** | `asynccontextmanager` pattern for startup (before yield) and shutdown (after yield) |
+| **pydantic-settings** | Reads `.env` into a typed `Settings` class; `@lru_cache` reads it once |
+| **Uvicorn** | The ASGI server process that listens on the port |
+| **TestClient** | Starlette's sync test wrapper — no real network socket needed |
+
+### What comes next — Milestone 4.2
+
+Define all 7 SQLAlchemy ORM models and the async session factory.
 
 ---
 

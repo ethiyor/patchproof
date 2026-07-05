@@ -4,10 +4,15 @@ import pytest
 import respx
 import httpx
 
-from cli.github_client import GitHubClient, make_github_client
+from cli.github_client import GitHubClient, make_github_client, parse_pr_url
+from models.github_models import PRMetadata
 from tests.mocks.github_api import (
     USER_RESPONSE,
+    PR_METADATA_RESPONSE,
+    ISSUE_RESPONSE,
     mock_get_user,
+    mock_pr_metadata,
+    mock_issue,
     mock_401,
     mock_404,
     mock_rate_limit,
@@ -139,3 +144,120 @@ class TestGitHubClientRaw:
         client.get_diff("/repos/owner/repo/pulls/1")
         request = respx.calls.last.request
         assert request.headers["accept"] == "application/vnd.github.diff"
+
+
+# ---------------------------------------------------------------------------
+# parse_pr_url
+# ---------------------------------------------------------------------------
+
+class TestParsePrUrl:
+    def test_valid_url_returns_tuple(self):
+        owner, repo, number = parse_pr_url("https://github.com/ethiyor/patchproof/pull/42")
+        assert owner == "ethiyor"
+        assert repo == "patchproof"
+        assert number == 42
+
+    def test_trailing_slash_accepted(self):
+        owner, repo, number = parse_pr_url("https://github.com/ethiyor/patchproof/pull/1/")
+        assert number == 1
+
+    def test_pr_number_is_int(self):
+        _, _, number = parse_pr_url("https://github.com/a/b/pull/99")
+        assert isinstance(number, int)
+
+    def test_invalid_url_raises_value_error(self):
+        with pytest.raises(ValueError, match="Invalid GitHub PR URL"):
+            parse_pr_url("https://github.com/user/repo")
+
+    def test_non_github_url_raises(self):
+        with pytest.raises(ValueError):
+            parse_pr_url("https://gitlab.com/user/repo/merge_requests/1")
+
+    def test_missing_pr_number_raises(self):
+        with pytest.raises(ValueError):
+            parse_pr_url("https://github.com/user/repo/pull/")
+
+    def test_error_message_shows_expected_format(self):
+        with pytest.raises(ValueError) as exc_info:
+            parse_pr_url("not-a-url")
+        assert "github.com/owner/repo/pull" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# fetch_pr_metadata
+# ---------------------------------------------------------------------------
+
+class TestFetchPrMetadata:
+    @respx.mock
+    def test_returns_pr_metadata_model(self):
+        mock_pr_metadata()
+        mock_issue()
+        client = GitHubClient("ghp_fake")
+        result = client.fetch_pr_metadata("ethiyor", "patchproof", 42)
+        assert isinstance(result, PRMetadata)
+
+    @respx.mock
+    def test_title_is_populated(self):
+        mock_pr_metadata()
+        mock_issue()
+        client = GitHubClient("ghp_fake")
+        result = client.fetch_pr_metadata("ethiyor", "patchproof", 42)
+        assert result.title == PR_METADATA_RESPONSE["title"]
+
+    @respx.mock
+    def test_author_is_extracted(self):
+        mock_pr_metadata()
+        mock_issue()
+        client = GitHubClient("ghp_fake")
+        result = client.fetch_pr_metadata("ethiyor", "patchproof", 42)
+        assert result.author == "ethiyor"
+
+    @respx.mock
+    def test_branches_are_extracted(self):
+        mock_pr_metadata()
+        mock_issue()
+        client = GitHubClient("ghp_fake")
+        result = client.fetch_pr_metadata("ethiyor", "patchproof", 42)
+        assert result.base_branch == "main"
+        assert result.head_branch == "feat/pdf-upload"
+
+    @respx.mock
+    def test_owner_repo_pr_number_on_model(self):
+        mock_pr_metadata()
+        mock_issue()
+        client = GitHubClient("ghp_fake")
+        result = client.fetch_pr_metadata("ethiyor", "patchproof", 42)
+        assert result.owner == "ethiyor"
+        assert result.repo == "patchproof"
+        assert result.pr_number == 42
+
+    @respx.mock
+    def test_linked_issue_body_fetched_when_closes_keyword_present(self):
+        mock_pr_metadata()   # PR body contains "Closes #10"
+        mock_issue()         # issue #10 response
+        client = GitHubClient("ghp_fake")
+        result = client.fetch_pr_metadata("ethiyor", "patchproof", 42)
+        assert result.linked_issue_body == ISSUE_RESPONSE["body"]
+
+    @respx.mock
+    def test_linked_issue_body_is_none_when_no_closes_keyword(self):
+        # PR body with no Closes/Fixes keyword
+        no_closes = {**PR_METADATA_RESPONSE, "body": "Just a description, no issue ref."}
+        respx.get("https://api.github.com/repos/ethiyor/patchproof/pulls/42").mock(
+            return_value=httpx.Response(200, json=no_closes)
+        )
+        client = GitHubClient("ghp_fake")
+        result = client.fetch_pr_metadata("ethiyor", "patchproof", 42)
+        assert result.linked_issue_body is None
+
+    @respx.mock
+    def test_linked_issue_fetch_failure_is_silent(self):
+        mock_pr_metadata()  # PR body contains "Closes #10"
+        # Issue fetch returns 404
+        respx.get("https://api.github.com/repos/ethiyor/patchproof/issues/10").mock(
+            return_value=httpx.Response(404, json={"message": "Not Found"})
+        )
+        client = GitHubClient("ghp_fake")
+        # Should not raise — linked_issue_body just stays None
+        result = client.fetch_pr_metadata("ethiyor", "patchproof", 42)
+        assert result.linked_issue_body is None

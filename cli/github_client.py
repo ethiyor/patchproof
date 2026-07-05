@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 
 import httpx
+
+from models.github_models import PRMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +15,16 @@ _TIMEOUT = 30.0
 _API_VERSION = "2022-11-28"
 _ACCEPT_JSON = "application/vnd.github+json"
 _ACCEPT_DIFF = "application/vnd.github.diff"
+
+# Matches: https://github.com/{owner}/{repo}/pull/{number}[/]
+_PR_URL_RE = re.compile(
+    r"^https://github\.com/([^/]+)/([^/]+)/pull/(\d+)/?$"
+)
+
+# Matches: Closes #42, Fixes #7, Resolves #100 (case-insensitive)
+_CLOSES_RE = re.compile(
+    r"(?:closes|fixes|resolves)\s+#(\d+)", re.IGNORECASE
+)
 
 
 class GitHubClient:
@@ -78,6 +91,72 @@ class GitHubClient:
     def get_diff(self, path: str) -> str:
         """Fetch a unified diff for a PR or commit."""
         return self.get_raw(path, accept=_ACCEPT_DIFF)
+
+    # ------------------------------------------------------------------
+    # PR metadata
+    # ------------------------------------------------------------------
+
+    def fetch_pr_metadata(
+        self, owner: str, repo: str, pr_number: int
+    ) -> PRMetadata:
+        """
+        Fetch metadata for a pull request and return a PRMetadata model.
+
+        If the PR body contains ``Closes #N`` / ``Fixes #N`` / ``Resolves #N``,
+        the linked issue body is fetched and included (best-effort — failure is
+        silently ignored so the pipeline can continue without the issue body).
+        """
+        data = self.get(f"/repos/{owner}/{repo}/pulls/{pr_number}")
+
+        body: str = data.get("body") or ""
+
+        # Try to fetch the linked issue body
+        linked_issue_body: str | None = None
+        match = _CLOSES_RE.search(body)
+        if match:
+            issue_number = int(match.group(1))
+            try:
+                issue_data = self.get(
+                    f"/repos/{owner}/{repo}/issues/{issue_number}"
+                )
+                linked_issue_body = issue_data.get("body") or None
+            except RuntimeError as exc:
+                logger.debug("Could not fetch linked issue #%d: %s", issue_number, exc)
+
+        return PRMetadata(
+            owner=owner,
+            repo=repo,
+            pr_number=pr_number,
+            title=data.get("title", ""),
+            body=body,
+            author=data["user"]["login"],
+            base_branch=data["base"]["ref"],
+            head_branch=data["head"]["ref"],
+            state=data["state"],
+            linked_issue_body=linked_issue_body,
+        )
+
+
+# ---------------------------------------------------------------------------
+# URL parsing
+# ---------------------------------------------------------------------------
+
+def parse_pr_url(url: str) -> tuple[str, str, int]:
+    """
+    Parse a GitHub PR URL into (owner, repo, pr_number).
+
+    Accepts: https://github.com/{owner}/{repo}/pull/{number}[/]
+
+    Raises:
+        ValueError: if the URL does not match the expected format.
+    """
+    m = _PR_URL_RE.match(url.strip())
+    if not m:
+        raise ValueError(
+            f"Invalid GitHub PR URL format: {url!r}\n"
+            "Expected: https://github.com/owner/repo/pull/123"
+        )
+    return m.group(1), m.group(2), int(m.group(3))
 
 
 # ---------------------------------------------------------------------------

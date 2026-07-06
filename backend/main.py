@@ -7,6 +7,7 @@ from typing import AsyncGenerator
 from fastapi import FastAPI
 
 from backend.api.health import router as health_router
+from backend.api.reviews import router as reviews_router
 from backend.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -47,3 +48,4 @@ app = FastAPI(
 )
 
 app.include_router(health_router)
+app.include_router(reviews_router)

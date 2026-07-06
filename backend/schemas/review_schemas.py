@@ -14,6 +14,13 @@ class LocalReviewRequest(BaseModel):
     test_output: str | None = Field(None, description="Optional test runner output (pytest, etc.).")
 
 
+class GithubPRReviewRequest(BaseModel):
+    """Request body for POST /reviews/github-pr."""
+
+    pr_url: str = Field(..., description="GitHub pull request URL, e.g. https://github.com/owner/repo/pull/42.")
+    task: str | None = Field(None, description="Optional task text. Falls back to PR body when omitted.")
+
+
 class ReviewResponse(BaseModel):
     """Response body returned by review endpoints."""
 

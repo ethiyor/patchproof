@@ -8,9 +8,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from starlette.testclient import TestClient
 
+from backend.db.models import PullRequest, Repository, Review
 from backend.db.session import get_db_session
 from backend.main import app
 from backend.schemas.review_schemas import ReviewResponse
+from models.github_models import PRMetadata
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "sample_diffs"
 
@@ -21,6 +23,9 @@ FIXTURES = Path(__file__).parent.parent / "fixtures" / "sample_diffs"
 def _make_mock_session():
     session = MagicMock()
     session.add = MagicMock()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    session.execute = AsyncMock(return_value=result)
     session.flush = AsyncMock()
     session.commit = AsyncMock()
     return session
@@ -42,6 +47,12 @@ def _no_llm_settings():
     return Settings(openai_api_key="", database_url="", github_token="")
 
 
+def _github_settings():
+    """Return settings with a fake GitHub token and no OpenAI key."""
+    from backend.config import Settings
+    return Settings(openai_api_key="", database_url="", github_token="ghp_fake1234")
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -52,6 +63,21 @@ def _simple_diff() -> str:
 
 def _auth_diff() -> str:
     return (FIXTURES / "auth_change.diff").read_text()
+
+
+def _pr_metadata(body: str = "Add PDF upload support") -> PRMetadata:
+    return PRMetadata(
+        owner="ethiyor",
+        repo="patchproof",
+        pr_number=42,
+        title="Add PDF upload support",
+        body=body,
+        author="ethiyor",
+        base_branch="main",
+        head_branch="feat/pdf-upload",
+        state="open",
+        linked_issue_body="Users should be able to upload PDF files.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -188,3 +214,165 @@ class TestCreateLocalReview:
             "task": "Add helper", "diff": _simple_diff(),
         }).json()
         assert auth_resp["risk_score"] > simple_resp["risk_score"]
+
+
+# ---------------------------------------------------------------------------
+# POST /reviews/github-pr
+# ---------------------------------------------------------------------------
+
+class TestCreateGithubPRReview:
+    def setup_method(self):
+        self.mock_db = _make_mock_session()
+        _override_db(self.mock_db)
+        self._settings_patch = patch(
+            "backend.api.reviews.get_settings",
+            return_value=_github_settings(),
+        )
+        self._client_instance = MagicMock()
+        self._client_instance.fetch_pr_metadata.return_value = _pr_metadata()
+        self._client_instance.fetch_pr_diff.return_value = _auth_diff()
+        self._github_client_patch = patch(
+            "backend.api.reviews.GitHubClient",
+            return_value=self._client_instance,
+        )
+        self._settings_patch.start()
+        self._github_client_patch.start()
+        self.client = TestClient(app)
+
+    def teardown_method(self):
+        self._github_client_patch.stop()
+        self._settings_patch.stop()
+        _clear_overrides()
+        from backend.config import get_settings
+        get_settings.cache_clear()
+
+    def test_returns_200(self):
+        response = self.client.post("/reviews/github-pr", json={
+            "pr_url": "https://github.com/ethiyor/patchproof/pull/42",
+            "task": "Add PDF uploads",
+        })
+        assert response.status_code == 200
+
+    def test_fetches_metadata_and_diff_for_parsed_url(self):
+        self.client.post("/reviews/github-pr", json={
+            "pr_url": "https://github.com/ethiyor/patchproof/pull/42",
+            "task": "Add PDF uploads",
+        })
+        self._client_instance.fetch_pr_metadata.assert_called_once_with("ethiyor", "patchproof", 42)
+        self._client_instance.fetch_pr_diff.assert_called_once_with("ethiyor", "patchproof", 42)
+
+    def test_response_contains_report(self):
+        response = self.client.post("/reviews/github-pr", json={
+            "pr_url": "https://github.com/ethiyor/patchproof/pull/42",
+            "task": "Add PDF uploads",
+        })
+        assert "# PatchProof Report" in response.json()["report_markdown"]
+
+    def test_report_uses_repo_and_pr_branch_context(self):
+        response = self.client.post("/reviews/github-pr", json={
+            "pr_url": "https://github.com/ethiyor/patchproof/pull/42",
+            "task": "Add PDF uploads",
+        })
+        report = response.json()["report_markdown"]
+        assert "ethiyor/patchproof" in report
+        assert "PR #42: feat/pdf-upload -> main" in report
+
+    def test_uses_request_task_when_provided(self):
+        response = self.client.post("/reviews/github-pr", json={
+            "pr_url": "https://github.com/ethiyor/patchproof/pull/42",
+            "task": "Use this explicit task",
+        })
+        assert "Use this explicit task" in response.json()["report_markdown"]
+
+    def test_falls_back_to_pr_body_when_task_missing(self):
+        response = self.client.post("/reviews/github-pr", json={
+            "pr_url": "https://github.com/ethiyor/patchproof/pull/42",
+        })
+        assert "Add PDF upload support" in response.json()["report_markdown"]
+
+    def test_falls_back_to_linked_issue_body_when_pr_body_empty(self):
+        self._client_instance.fetch_pr_metadata.return_value = _pr_metadata(body="")
+        response = self.client.post("/reviews/github-pr", json={
+            "pr_url": "https://github.com/ethiyor/patchproof/pull/42",
+        })
+        assert "Users should be able to upload PDF files." in response.json()["report_markdown"]
+
+    def test_persists_repository_pull_request_and_review(self):
+        self.client.post("/reviews/github-pr", json={
+            "pr_url": "https://github.com/ethiyor/patchproof/pull/42",
+            "task": "Add PDF uploads",
+        })
+        added = [call.args[0] for call in self.mock_db.add.call_args_list]
+        assert any(isinstance(obj, Repository) for obj in added)
+        assert any(isinstance(obj, PullRequest) for obj in added)
+        assert any(isinstance(obj, Review) for obj in added)
+
+    def test_reuses_existing_repository_and_pull_request(self):
+        existing_repo = Repository(
+            id=uuid.uuid4(),
+            owner="ethiyor",
+            name="patchproof",
+            provider="github",
+        )
+        existing_pr = PullRequest(
+            id=uuid.uuid4(),
+            repository_id=existing_repo.id,
+            pr_number=42,
+        )
+        repo_result = MagicMock()
+        repo_result.scalar_one_or_none.return_value = existing_repo
+        pr_result = MagicMock()
+        pr_result.scalar_one_or_none.return_value = existing_pr
+        self.mock_db.execute.side_effect = [repo_result, pr_result]
+
+        self.client.post("/reviews/github-pr", json={
+            "pr_url": "https://github.com/ethiyor/patchproof/pull/42",
+            "task": "Add PDF uploads",
+        })
+
+        added = [call.args[0] for call in self.mock_db.add.call_args_list]
+        assert not any(isinstance(obj, Repository) for obj in added)
+        assert not any(isinstance(obj, PullRequest) for obj in added)
+        assert any(isinstance(obj, Review) for obj in added)
+
+    def test_db_commit_called(self):
+        self.client.post("/reviews/github-pr", json={
+            "pr_url": "https://github.com/ethiyor/patchproof/pull/42",
+            "task": "Add PDF uploads",
+        })
+        self.mock_db.commit.assert_awaited_once()
+
+    def test_invalid_url_returns_400(self):
+        response = self.client.post("/reviews/github-pr", json={
+            "pr_url": "https://gitlab.com/ethiyor/patchproof/merge_requests/42",
+            "task": "Add PDF uploads",
+        })
+        assert response.status_code == 400
+        assert "Invalid GitHub PR URL" in response.json()["detail"]
+
+    def test_missing_github_token_returns_400(self):
+        with patch("backend.api.reviews.get_settings", return_value=_no_llm_settings()):
+            response = self.client.post("/reviews/github-pr", json={
+                "pr_url": "https://github.com/ethiyor/patchproof/pull/42",
+                "task": "Add PDF uploads",
+            })
+        assert response.status_code == 400
+        assert "GITHUB_TOKEN" in response.json()["detail"]
+
+    def test_github_fetch_error_returns_502(self):
+        self._client_instance.fetch_pr_metadata.side_effect = RuntimeError("GitHub resource not found")
+        response = self.client.post("/reviews/github-pr", json={
+            "pr_url": "https://github.com/ethiyor/patchproof/pull/42",
+            "task": "Add PDF uploads",
+        })
+        assert response.status_code == 502
+        assert "GitHub resource not found" in response.json()["detail"]
+
+    def test_empty_diff_returns_400(self):
+        self._client_instance.fetch_pr_diff.return_value = ""
+        response = self.client.post("/reviews/github-pr", json={
+            "pr_url": "https://github.com/ethiyor/patchproof/pull/42",
+            "task": "Add PDF uploads",
+        })
+        assert response.status_code == 400
+        assert "No file changes" in response.json()["detail"]

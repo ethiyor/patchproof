@@ -6,11 +6,20 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from backend.config import get_settings
 from backend.db.models import ChangedFile, PullRequest, Repository, Review
 from backend.db.session import get_db_session
-from backend.schemas.review_schemas import GithubPRReviewRequest, LocalReviewRequest, ReviewResponse
+from backend.schemas.review_schemas import (
+    ChangedFileResponse,
+    GithubPRReviewRequest,
+    LocalReviewRequest,
+    RequirementCheckResponse,
+    ReviewDetailResponse,
+    ReviewFindingResponse,
+    ReviewResponse,
+)
 from cli.github_client import GitHubClient, parse_pr_url
 from core.diff_parser import parse_diff
 from core.report_generator import generate_full_report, generate_report
@@ -176,6 +185,74 @@ async def _get_or_create_pull_request(
     db.add(pull_request)
     await db.flush()
     return pull_request
+
+
+# ---------------------------------------------------------------------------
+# GET /reviews/{review_id}
+# ---------------------------------------------------------------------------
+
+@router.get("/{review_id}", response_model=ReviewDetailResponse)
+async def get_review(
+    review_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db_session),
+) -> ReviewDetailResponse:
+    """Return a saved review and its related analysis details."""
+    result = await db.execute(
+        select(Review)
+        .options(
+            selectinload(Review.findings),
+            selectinload(Review.requirement_checks),
+            selectinload(Review.changed_files),
+        )
+        .where(Review.id == review_id)
+    )
+    review = result.scalar_one_or_none()
+    if review is None:
+        raise HTTPException(status_code=404, detail="Review not found")
+
+    return ReviewDetailResponse(
+        review_id=str(review.id),
+        created_at=review.created_at,
+        task_text=review.task_text,
+        risk_score=review.risk_score,
+        risk_level=review.risk_level,
+        merge_recommendation=review.merge_recommendation,
+        report_markdown=review.report_markdown,
+        findings=[
+            ReviewFindingResponse(
+                category=finding.category,
+                severity=finding.severity,
+                title=finding.title,
+                description=finding.description,
+                file_path=finding.file_path,
+                line_start=finding.line_start,
+                line_end=finding.line_end,
+                evidence=finding.evidence,
+                suggestion=finding.suggestion,
+            )
+            for finding in review.findings
+        ],
+        requirement_checks=[
+            RequirementCheckResponse(
+                requirement_text=check.requirement_text,
+                status=check.status,
+                evidence=check.evidence,
+                reason=check.reason,
+            )
+            for check in review.requirement_checks
+        ],
+        changed_files=[
+            ChangedFileResponse(
+                file_path=changed_file.file_path,
+                status=changed_file.status,
+                language=changed_file.language,
+                additions=changed_file.additions,
+                deletions=changed_file.deletions,
+                risk_flags=changed_file.risk_flags,
+            )
+            for changed_file in review.changed_files
+        ],
+    )
 
 
 # ---------------------------------------------------------------------------

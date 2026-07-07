@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import os
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from starlette.testclient import TestClient
 
-from backend.db.models import PullRequest, Repository, Review
+from backend.db.models import ChangedFile, PullRequest, Repository, RequirementCheck, Review, ReviewFinding
 from backend.db.session import get_db_session
 from backend.main import app
 from backend.schemas.review_schemas import ReviewResponse
@@ -78,6 +79,89 @@ def _pr_metadata(body: str = "Add PDF upload support") -> PRMetadata:
         state="open",
         linked_issue_body="Users should be able to upload PDF files.",
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /reviews/{review_id}
+# ---------------------------------------------------------------------------
+
+class TestGetReview:
+    def setup_method(self):
+        self.mock_db = _make_mock_session()
+        _override_db(self.mock_db)
+        self.client = TestClient(app)
+
+    def teardown_method(self):
+        _clear_overrides()
+
+    def test_returns_saved_review_detail(self):
+        review_id = uuid.uuid4()
+        review = Review(
+            id=review_id,
+            task_text="Add PDF upload validation",
+            risk_score=7,
+            risk_level="high",
+            merge_recommendation="needs_changes",
+            report_markdown="# PatchProof Report\n...",
+        )
+        review.created_at = datetime(2026, 7, 6, 12, 30, tzinfo=UTC)
+        review.findings = [
+            ReviewFinding(
+                review_id=review_id,
+                category="security",
+                severity="error",
+                title="No file size limit enforced",
+                description="The upload handler accepts arbitrary file size.",
+                file_path="backend/routes/upload.py",
+                line_start=42,
+                line_end=44,
+                evidence="No MAX_UPLOAD_SIZE check found",
+                suggestion="Reject uploads above the configured limit.",
+            )
+        ]
+        review.requirement_checks = [
+            RequirementCheck(
+                review_id=review_id,
+                requirement_text="Validate MIME type",
+                status="missing",
+                evidence=None,
+                reason="No MIME check found in upload handler",
+            )
+        ]
+        review.changed_files = [
+            ChangedFile(
+                review_id=review_id,
+                file_path="backend/routes/upload.py",
+                status="modified",
+                language="python",
+                additions=15,
+                deletions=2,
+                risk_flags=["api", "security"],
+            )
+        ]
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = review
+        self.mock_db.execute = AsyncMock(return_value=result)
+
+        response = self.client.get(f"/reviews/{review_id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["review_id"] == str(review_id)
+        assert data["task_text"] == "Add PDF upload validation"
+        assert data["risk_score"] == 7
+        assert data["risk_level"] == "high"
+        assert data["merge_recommendation"] == "needs_changes"
+        assert data["report_markdown"] == "# PatchProof Report\n..."
+        assert data["findings"][0]["title"] == "No file size limit enforced"
+        assert data["requirement_checks"][0]["requirement_text"] == "Validate MIME type"
+        assert data["changed_files"][0]["file_path"] == "backend/routes/upload.py"
+
+    def test_unknown_review_returns_404(self):
+        response = self.client.get(f"/reviews/{uuid.uuid4()}")
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Review not found"}
 
 
 # ---------------------------------------------------------------------------

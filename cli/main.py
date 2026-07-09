@@ -1,7 +1,8 @@
+import httpx
 import typer
 from pathlib import Path
 
-from cli.config_loader import get_openai_api_key
+from cli.config_loader import get_openai_api_key, get_patchproof_api_url
 from cli.git_client import collect_diff
 from cli.github_client import make_github_client, parse_pr_url
 from core.diff_parser import parse_diff
@@ -13,6 +14,100 @@ app = typer.Typer(
     help="PatchProof — verify AI-generated code changes before merging.",
     no_args_is_help=True,
 )
+
+
+def _write_local_review_report(
+    *,
+    task_text: str,
+    diff_result,
+    output: Path,
+) -> None:
+    """Run the original in-process analysis path and write a report."""
+    parsed = parse_diff(diff_result.raw)
+    risk = compute_risk(parsed)
+
+    typer.echo(f"Risk    : {risk}")
+
+    if get_openai_api_key():
+        from llm.pipeline import run_pipeline
+        typer.echo("Running LLM pipeline...")
+        pipeline_result = run_pipeline(
+            task_text=task_text,
+            diff_text=diff_result.raw,
+            parsed_diff=parsed,
+            risk=risk,
+        )
+        write_full_report(
+            diff=parsed,
+            risk=risk,
+            task_text=task_text,
+            repo_name=diff_result.repo_name,
+            branch=diff_result.branch,
+            pipeline_result=pipeline_result,
+            output=output,
+        )
+    else:
+        typer.echo("Note: OPENAI_API_KEY not set — writing basic report (Phase 1).", err=True)
+        write_report(
+            diff=parsed,
+            risk=risk,
+            task_text=task_text,
+            repo_name=diff_result.repo_name,
+            branch=diff_result.branch,
+            output=output,
+        )
+
+
+def _try_backend_review(
+    *,
+    api_url: str,
+    task_text: str,
+    diff_result,
+    output: Path,
+) -> bool:
+    """POST the local review to the backend. Return False when it is unreachable."""
+    payload = {
+        "task": task_text,
+        "diff": diff_result.raw,
+        "repo_name": diff_result.repo_name,
+        "branch": diff_result.branch,
+    }
+    endpoint = f"{api_url}/reviews/local"
+
+    try:
+        response = httpx.post(endpoint, json=payload, timeout=60.0)
+    except httpx.RequestError as exc:
+        typer.echo(
+            f"Backend unavailable at {api_url} ({exc.__class__.__name__}); running offline analysis.",
+            err=True,
+        )
+        return False
+
+    if response.status_code >= 400:
+        typer.echo(f"Error: backend review failed with HTTP {response.status_code}.", err=True)
+        detail = response.text.strip()
+        if detail:
+            typer.echo(detail[:500], err=True)
+        raise typer.Exit(code=1)
+
+    try:
+        data = response.json()
+    except ValueError:
+        typer.echo("Error: backend returned a non-JSON response.", err=True)
+        raise typer.Exit(code=1)
+
+    report = data.get("report_markdown")
+    review_id = data.get("review_id")
+    if not isinstance(report, str) or not report:
+        typer.echo("Error: backend response did not include report_markdown.", err=True)
+        raise typer.Exit(code=1)
+    if not isinstance(review_id, str) or not review_id:
+        typer.echo("Error: backend response did not include review_id.", err=True)
+        raise typer.Exit(code=1)
+
+    output.write_text(report, encoding="utf-8")
+    typer.echo(f"Review saved: {review_id}")
+    return True
 
 
 @app.command()
@@ -50,40 +145,24 @@ def review(
     typer.echo(f"Repo    : {diff_result.repo_name}  [{diff_result.branch}]")
     typer.echo(f"Diff    : {diff_result}")
 
-    parsed = parse_diff(diff_result.raw)
-    risk = compute_risk(parsed)
-
-    typer.echo(f"Risk    : {risk}")
-
-    if get_openai_api_key():
-        from llm.pipeline import run_pipeline
-        typer.echo("Running LLM pipeline...")
-        pipeline_result = run_pipeline(
+    api_url = get_patchproof_api_url()
+    if api_url:
+        if _try_backend_review(
+            api_url=api_url,
             task_text=task_text,
-            diff_text=diff_result.raw,
-            parsed_diff=parsed,
-            risk=risk,
-        )
-        write_full_report(
-            diff=parsed,
-            risk=risk,
-            task_text=task_text,
-            repo_name=diff_result.repo_name,
-            branch=diff_result.branch,
-            pipeline_result=pipeline_result,
+            diff_result=diff_result,
             output=output,
-        )
+        ):
+            typer.echo(f"Report  : {output}  ✓")
+            return
     else:
-        typer.echo("Note: OPENAI_API_KEY not set — writing basic report (Phase 1).", err=True)
-        write_report(
-            diff=parsed,
-            risk=risk,
-            task_text=task_text,
-            repo_name=diff_result.repo_name,
-            branch=diff_result.branch,
-            output=output,
-        )
+        typer.echo("Backend : offline mode")
 
+    _write_local_review_report(
+        task_text=task_text,
+        diff_result=diff_result,
+        output=output,
+    )
     typer.echo(f"Report  : {output}  ✓")
 
 

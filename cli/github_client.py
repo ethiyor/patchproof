@@ -49,13 +49,25 @@ class GitHubClient:
     # Core transport
     # ------------------------------------------------------------------
 
-    def _request(self, path: str, accept: str | None = None) -> httpx.Response:
+    def _request(
+        self,
+        path: str,
+        *,
+        method: str = "GET",
+        accept: str | None = None,
+        json_body: dict | None = None,
+    ) -> httpx.Response:
         headers = {**self._base_headers}
         if accept:
             headers["Accept"] = accept
 
         with httpx.Client(timeout=_TIMEOUT) as client:
-            response = client.get(f"{_BASE_URL}{path}", headers=headers)
+            response = client.request(
+                method,
+                f"{_BASE_URL}{path}",
+                headers=headers,
+                json=json_body,
+            )
 
         self._raise_for_status(response, path)
         return response
@@ -87,6 +99,10 @@ class GitHubClient:
     def get_raw(self, path: str, accept: str) -> str:
         """Fetch a resource and return raw text (used for diff content)."""
         return self._request(path, accept=accept).text
+
+    def post_json(self, path: str, payload: dict) -> dict:
+        """POST a JSON payload and return the parsed response body."""
+        return self._request(path, method="POST", json_body=payload).json()
 
     def get_diff(self, path: str) -> str:
         """Fetch a unified diff for a PR or commit."""
@@ -148,6 +164,22 @@ class GitHubClient:
         path = f"/repos/{owner}/{repo}/pulls/{pr_number}"
         diff = self.get_diff(path)
         return diff if diff and diff.strip() else ""
+
+    def create_issue_comment(self, owner: str, repo: str, issue_number: int, body: str) -> str:
+        """
+        Create a comment on an issue or pull request and return its browser URL.
+
+        GitHub pull request conversation comments use the Issues comments API:
+        /repos/{owner}/{repo}/issues/{number}/comments.
+        """
+        data = self.post_json(
+            f"/repos/{owner}/{repo}/issues/{issue_number}/comments",
+            {"body": body},
+        )
+        comment_url = data.get("html_url") or data.get("url")
+        if not isinstance(comment_url, str) or not comment_url:
+            raise RuntimeError("GitHub comment response did not include a comment URL.")
+        return comment_url
 
 
 # ---------------------------------------------------------------------------

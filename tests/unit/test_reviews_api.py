@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from types import SimpleNamespace
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -460,3 +461,56 @@ class TestCreateGithubPRReview:
         })
         assert response.status_code == 400
         assert "No file changes" in response.json()["detail"]
+
+# ---------------------------------------------------------------------------
+# POST /reviews/{review_id}/comment
+# ---------------------------------------------------------------------------
+
+class TestCommentOnReview:
+    def setup_method(self):
+        self.mock_db = _make_mock_session()
+        _override_db(self.mock_db)
+        self.client = TestClient(app)
+
+    def teardown_method(self):
+        _clear_overrides()
+
+    def test_returns_comment_url(self):
+        review_id = uuid.uuid4()
+        with patch(
+            "backend.api.reviews.post_review_comment",
+            new=AsyncMock(return_value=SimpleNamespace(comment_url="https://github.com/ethiyor/patchproof/pull/42#issuecomment-1")),
+        ) as post_mock:
+            response = self.client.post(f"/reviews/{review_id}/comment")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "review_id": str(review_id),
+            "status": "posted",
+            "comment_url": "https://github.com/ethiyor/patchproof/pull/42#issuecomment-1",
+        }
+        post_mock.assert_awaited_once_with(db=self.mock_db, review_id=review_id)
+
+    def test_unknown_review_returns_404(self):
+        review_id = uuid.uuid4()
+        with patch(
+            "backend.api.reviews.post_review_comment",
+            new=AsyncMock(side_effect=LookupError("Review not found")),
+        ):
+            response = self.client.post(f"/reviews/{review_id}/comment")
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Review not found"}
+
+    def test_comment_error_returns_400(self):
+        from backend.services.pr_commenter import PRCommentError
+
+        review_id = uuid.uuid4()
+        with patch(
+            "backend.api.reviews.post_review_comment",
+            new=AsyncMock(side_effect=PRCommentError("Repository is missing GitHub App installation id.")),
+        ):
+            response = self.client.post(f"/reviews/{review_id}/comment")
+
+        assert response.status_code == 400
+        assert "installation id" in response.json()["detail"]

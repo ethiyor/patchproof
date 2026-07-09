@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 import respx
 import httpx
@@ -329,3 +331,33 @@ class TestFetchPrDiff:
         assert parsed.total_files == 4
         assert parsed.total_additions > 0
         assert any("migration" in f for f in parsed.risky_files)
+
+# ---------------------------------------------------------------------------
+# create_issue_comment
+# ---------------------------------------------------------------------------
+
+class TestCreateIssueComment:
+    @respx.mock
+    def test_posts_comment_and_returns_html_url(self):
+        respx.post("https://api.github.com/repos/ethiyor/patchproof/issues/42/comments").mock(
+            return_value=httpx.Response(201, json={"html_url": "https://github.com/ethiyor/patchproof/pull/42#issuecomment-1"})
+        )
+        client = GitHubClient("ghp_fake")
+
+        result = client.create_issue_comment("ethiyor", "patchproof", 42, "# PatchProof Report")
+
+        assert result.endswith("issuecomment-1")
+        request = respx.calls.last.request
+        assert request.method == "POST"
+        assert request.headers["authorization"] == "Bearer ghp_fake"
+        assert json.loads(request.content) == {"body": "# PatchProof Report"}
+
+    @respx.mock
+    def test_missing_comment_url_raises(self):
+        respx.post("https://api.github.com/repos/ethiyor/patchproof/issues/42/comments").mock(
+            return_value=httpx.Response(201, json={"id": 123})
+        )
+        client = GitHubClient("ghp_fake")
+
+        with pytest.raises(RuntimeError, match="comment URL"):
+            client.create_issue_comment("ethiyor", "patchproof", 42, "# PatchProof Report")

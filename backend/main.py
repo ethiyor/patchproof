@@ -5,7 +5,9 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
+from backend.api.github_webhook import router as github_webhook_router
 from backend.api.health import router as health_router
 from backend.api.reviews import router as reviews_router
 from backend.config import get_settings
@@ -46,6 +48,14 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(health_router)
 app.include_router(reviews_router)
+app.include_router(github_webhook_router)

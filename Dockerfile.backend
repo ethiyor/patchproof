@@ -1,0 +1,22 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+COPY pyproject.toml README.md ./
+COPY alembic.ini ./
+COPY backend ./backend
+COPY cli ./cli
+COPY core ./core
+COPY llm ./llm
+COPY models ./models
+
+RUN pip install --upgrade pip \
+    && pip install -e .
+
+EXPOSE 8000
+
+CMD ["sh", "-c", "alembic upgrade head && uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir backend --reload-dir core --reload-dir cli --reload-dir llm --reload-dir models"]

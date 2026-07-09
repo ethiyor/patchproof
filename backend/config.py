@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     github_token: str = ""
 
+    # GitHub App webhooks/authentication
+    github_app_id: str = ""
+    github_app_private_key_path: str = ""
+    github_webhook_secret: str = ""
+
     # Security
     secret_key: str = "changeme-in-production"
 

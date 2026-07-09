@@ -71,6 +71,61 @@ Needs changes — 2 security gaps, 3 missing tests.
 
 ---
 
+## Local Backend With Docker Compose
+
+Milestone 4.8 adds a one-command local development stack for the FastAPI backend
+and PostgreSQL database.
+
+```bash
+docker compose up
+```
+
+When the stack is running:
+
+- Backend API: `http://localhost:8000`
+- API docs: `http://localhost:8000/docs`
+- PostgreSQL: `localhost:5432`
+
+The Compose stack starts two services:
+
+| Service | Purpose |
+|---|---|
+| `db` | PostgreSQL 16 with a persistent named volume |
+| `backend` | FastAPI app served by Uvicorn with `--reload` |
+
+The backend waits for the database health check before starting. On startup it
+runs `alembic upgrade head`, then starts `uvicorn backend.main:app --reload`.
+That means schema migrations are applied automatically for local development,
+and code edits are picked up without rebuilding the image.
+
+The backend receives this database URL from Compose:
+
+```text
+postgresql+asyncpg://patchproof:patchproof@db:5432/patchproof
+```
+
+Optional secrets are passed through from your local environment or `.env` file:
+
+```bash
+OPENAI_API_KEY=...
+GITHUB_TOKEN=...
+SECRET_KEY=...
+```
+
+To stop the stack:
+
+```bash
+docker compose down
+```
+
+To stop the stack and remove the local Postgres data volume:
+
+```bash
+docker compose down -v
+```
+
+---
+
 ## Development Phases
 
 | Phase | Status | What it builds |

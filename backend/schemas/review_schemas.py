@@ -81,3 +81,10 @@ class ReviewDetailResponse(BaseModel):
     findings: list[ReviewFindingResponse] = Field(default_factory=list)
     requirement_checks: list[RequirementCheckResponse] = Field(default_factory=list)
     changed_files: list[ChangedFileResponse] = Field(default_factory=list)
+
+class ReviewCommentResponse(BaseModel):
+    """Response body returned after posting a review as a PR comment."""
+
+    review_id: str
+    status: str
+    comment_url: str

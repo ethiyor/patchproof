@@ -17,3 +17,11 @@ patchproof-report.md
 
 # OS
 .DS_Store
+# GitHub App private keys and local secrets
+secrets/
+*.pem
+*.key
+*.private-key
+*.private-key.pem
+.env.*
+!.env.example

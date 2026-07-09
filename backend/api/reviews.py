@@ -11,11 +11,13 @@ from sqlalchemy.orm import selectinload
 from backend.config import get_settings
 from backend.db.models import ChangedFile, PullRequest, Repository, Review
 from backend.db.session import get_db_session
+from backend.services.pr_commenter import PRCommentError, post_review_comment
 from backend.schemas.review_schemas import (
     ChangedFileResponse,
     GithubPRReviewRequest,
     LocalReviewRequest,
     RequirementCheckResponse,
+    ReviewCommentResponse,
     ReviewDetailResponse,
     ReviewFindingResponse,
     ReviewResponse,
@@ -255,6 +257,28 @@ async def get_review(
     )
 
 
+# ---------------------------------------------------------------------------
+# POST /reviews/{review_id}/comment
+# ---------------------------------------------------------------------------
+
+@router.post("/{review_id}/comment", response_model=ReviewCommentResponse)
+async def comment_on_review(
+    review_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db_session),
+) -> ReviewCommentResponse:
+    """Post a saved PatchProof report as a GitHub PR comment."""
+    try:
+        result = await post_review_comment(db=db, review_id=review_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PRCommentError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return ReviewCommentResponse(
+        review_id=str(review_id),
+        status="posted",
+        comment_url=result.comment_url,
+    )
 # ---------------------------------------------------------------------------
 # POST /reviews/local
 # ---------------------------------------------------------------------------

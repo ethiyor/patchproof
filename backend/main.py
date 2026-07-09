@@ -6,6 +6,7 @@ from typing import AsyncGenerator
 
 from fastapi import FastAPI
 
+from backend.api.github_webhook import router as github_webhook_router
 from backend.api.health import router as health_router
 from backend.api.reviews import router as reviews_router
 from backend.config import get_settings
@@ -49,3 +50,4 @@ app = FastAPI(
 
 app.include_router(health_router)
 app.include_router(reviews_router)
+app.include_router(github_webhook_router)

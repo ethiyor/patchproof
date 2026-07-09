@@ -81,6 +81,14 @@ class TestParsePullRequestWebhook:
         else:
             raise AssertionError("Expected ValueError")
 
+    def test_non_string_pr_body_becomes_empty_string(self):
+        payload = _payload()
+        payload["pull_request"]["body"] = {"unexpected": "object"}
+
+        event = parse_pull_request_webhook(payload)
+
+        assert event.pr_body == ""
+
 
 class TestProcessPullRequestWebhook:
     def test_fetches_diff_saves_review_and_posts_comment(self):

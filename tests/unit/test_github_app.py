@@ -195,3 +195,7 @@ def test_create_app_jwt_requires_existing_private_key():
 
     with pytest.raises(RuntimeError, match="private key file does not exist"):
         client.create_app_jwt()
+
+
+def test_default_clients_share_installation_token_cache():
+    assert GitHubAppClient()._installation_token_cache is GitHubAppClient()._installation_token_cache

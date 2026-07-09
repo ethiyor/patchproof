@@ -54,6 +54,8 @@ def parse_pull_request_webhook(payload: dict[str, Any]) -> PullRequestWebhookEve
     if not isinstance(pr_number, int):
         raise ValueError("GitHub pull_request payload is missing pull_request.number.")
 
+    pr_body = pull_request.get("body")
+
     return PullRequestWebhookEvent(
         action=payload.get("action") if isinstance(payload.get("action"), str) else None,
         installation_id=installation_id,
@@ -61,7 +63,7 @@ def parse_pull_request_webhook(payload: dict[str, Any]) -> PullRequestWebhookEve
         repo=repo,
         repo_full_name=repo_full_name,
         pr_number=pr_number,
-        pr_body=pull_request.get("body") or "",
+        pr_body=pr_body if isinstance(pr_body, str) else "",
     )
 
 

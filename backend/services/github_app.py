@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Callable
+from typing import Callable, ClassVar
 
 import httpx
 import jwt
@@ -28,6 +28,8 @@ class InstallationToken:
 class GitHubAppClient:
     """Authenticate as the GitHub App and fetch installation access tokens."""
 
+    _shared_installation_token_cache: ClassVar[dict[int, InstallationToken]] = {}
+
     def __init__(
         self,
         settings: Settings | None = None,
@@ -38,7 +40,10 @@ class GitHubAppClient:
         self.http_client = http_client or httpx.Client(timeout=30.0)
         self._owns_http_client = http_client is None
         self.now_fn = now_fn or (lambda: datetime.now(UTC))
-        self._installation_token_cache: dict[int, InstallationToken] = {}
+        if settings is None and http_client is None and now_fn is None:
+            self._installation_token_cache = self._shared_installation_token_cache
+        else:
+            self._installation_token_cache: dict[int, InstallationToken] = {}
 
     def close(self) -> None:
         if self._owns_http_client:

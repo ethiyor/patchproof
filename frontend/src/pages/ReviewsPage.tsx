@@ -2,12 +2,17 @@ import { useEffect, useState } from "react";
 
 import { apiClient, fetchReviews, type ReviewListItem } from "../api/client";
 import ReviewCard from "../components/ReviewCard";
+import RiskTrendChart from "../components/RiskTrendChart";
 
 type LoadState = "loading" | "ready" | "empty" | "error";
 
+type ReviewsPageProps = {
+  onSelectReview: (reviewId: string) => void;
+};
+
 const apiBaseUrl = apiClient.defaults.baseURL ?? "http://localhost:8000";
 
-function ReviewsPage() {
+function ReviewsPage({ onSelectReview }: ReviewsPageProps) {
   const [reviews, setReviews] = useState<ReviewListItem[]>([]);
   const [total, setTotal] = useState(0);
   const [state, setState] = useState<LoadState>("loading");
@@ -73,6 +78,8 @@ function ReviewsPage() {
           </div>
         </section>
 
+        <RiskTrendChart />
+
         {state === "loading" && (
           <section className="flex min-h-72 items-center justify-center rounded-md border border-line bg-white shadow-sm">
             <div className="flex items-center gap-3 text-sm font-medium text-slate-600">
@@ -97,7 +104,11 @@ function ReviewsPage() {
         {state === "ready" && (
           <section className="grid gap-4 lg:grid-cols-2">
             {reviews.map((review) => (
-              <ReviewCard key={review.review_id} review={review} />
+              <ReviewCard
+                key={review.review_id}
+                review={review}
+                onOpen={onSelectReview}
+              />
             ))}
           </section>
         )}

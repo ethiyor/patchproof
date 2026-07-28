@@ -102,9 +102,13 @@ class GitHubAppClient:
         return token
 
     def _read_private_key(self) -> str:
+        private_key = self.settings.github_app_private_key.strip()
+        if private_key:
+            return private_key.replace("\\n", "\n")
+
         private_key_path = self.settings.github_app_private_key_path.strip()
         if not private_key_path:
-            raise RuntimeError("GITHUB_APP_PRIVATE_KEY_PATH is not configured.")
+            raise RuntimeError("GITHUB_APP_PRIVATE_KEY or GITHUB_APP_PRIVATE_KEY_PATH is not configured.")
 
         path = Path(private_key_path)
         if not path.exists():

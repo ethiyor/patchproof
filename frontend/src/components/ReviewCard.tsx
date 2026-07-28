@@ -3,6 +3,7 @@ import RiskBadge from "./RiskBadge";
 
 type ReviewCardProps = {
   review: ReviewListItem;
+  onOpen: (reviewId: string) => void;
 };
 
 function formatDate(value: string): string {
@@ -29,9 +30,13 @@ function formatRecommendation(value: string | null): string {
     .join(" ");
 }
 
-function ReviewCard({ review }: ReviewCardProps) {
+function ReviewCard({ review, onOpen }: ReviewCardProps) {
   return (
-    <article className="rounded-md border border-line bg-white p-5 shadow-sm transition hover:border-slate-300 hover:shadow-md">
+    <button
+      type="button"
+      onClick={() => onOpen(review.review_id)}
+      className="rounded-md border border-line bg-white p-5 text-left shadow-sm transition hover:border-slate-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+    >
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h2 className="truncate text-base font-semibold text-ink">
@@ -60,7 +65,7 @@ function ReviewCard({ review }: ReviewCardProps) {
           </p>
         </div>
       </div>
-    </article>
+    </button>
   );
 }
 

@@ -170,6 +170,50 @@ def test_get_installation_token_raises_on_github_error(github_app_settings):
         client.get_installation_token(42)
 
 
+def test_create_app_jwt_can_read_private_key_from_environment(private_key_pair):
+    key_path, public_pem = private_key_pair
+    private_key_content = key_path.read_text(encoding="utf-8")
+    settings = Settings(
+        database_url="",
+        github_app_id="4235946",
+        github_app_private_key=private_key_content,
+        _env_file=None,
+    )
+    client = GitHubAppClient(settings=settings, now_fn=lambda: FIXED_NOW)
+
+    token = client.create_app_jwt()
+    claims = jwt.decode(
+        token,
+        public_pem,
+        algorithms=["RS256"],
+        options={"verify_exp": False, "verify_iat": False},
+    )
+
+    assert claims["iss"] == "4235946"
+
+
+def test_create_app_jwt_normalizes_escaped_newlines_in_private_key(private_key_pair):
+    key_path, public_pem = private_key_pair
+    escaped_private_key = key_path.read_text(encoding="utf-8").replace("\n", "\\n")
+    settings = Settings(
+        database_url="",
+        github_app_id="4235946",
+        github_app_private_key=escaped_private_key,
+        _env_file=None,
+    )
+    client = GitHubAppClient(settings=settings, now_fn=lambda: FIXED_NOW)
+
+    token = client.create_app_jwt()
+    claims = jwt.decode(
+        token,
+        public_pem,
+        algorithms=["RS256"],
+        options={"verify_exp": False, "verify_iat": False},
+    )
+
+    assert claims["iss"] == "4235946"
+
+
 def test_create_app_jwt_requires_app_id(private_key_pair):
     key_path, _ = private_key_pair
     settings = Settings(
@@ -181,6 +225,20 @@ def test_create_app_jwt_requires_app_id(private_key_pair):
     client = GitHubAppClient(settings=settings, now_fn=lambda: FIXED_NOW)
 
     with pytest.raises(RuntimeError, match="GITHUB_APP_ID"):
+        client.create_app_jwt()
+
+
+def test_create_app_jwt_requires_private_key_configuration():
+    settings = Settings(
+        database_url="",
+        github_app_id="4235946",
+        github_app_private_key_path="",
+        github_app_private_key="",
+        _env_file=None,
+    )
+    client = GitHubAppClient(settings=settings, now_fn=lambda: FIXED_NOW)
+
+    with pytest.raises(RuntimeError, match="GITHUB_APP_PRIVATE_KEY"):
         client.create_app_jwt()
 
 

@@ -36,7 +36,7 @@ services:
       - "8000:8000"
     volumes:
       - .:/app
-    command: sh -c "alembic upgrade head && uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir backend --reload-dir core --reload-dir cli --reload-dir llm --reload-dir models"
+    command: sh -c "alembic upgrade head && uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir backend --reload-dir core --reload-dir cli --reload-dir llm --reload-dir models --reload-dir frontend"
 
 volumes:
   patchproof_postgres_data:

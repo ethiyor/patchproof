@@ -5,6 +5,7 @@ import logging
 import os
 import time
 
+from backend.config import get_settings
 from openai import APIConnectionError, APIError, OpenAI, RateLimitError
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ def _make_client() -> OpenAI:
     Raises RuntimeError if the key is missing.
     Never logs the full key — only the first 4 characters.
     """
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("OPENAI_API_KEY") or get_settings().openai_api_key
     if not api_key:
         raise RuntimeError(
             "OPENAI_API_KEY is not set. "

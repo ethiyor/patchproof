@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from backend.config import Settings
 from llm.client import call_llm
 from tests.mocks.llm_responses import STEP1_REQUIREMENTS
 
@@ -54,13 +55,17 @@ def _bad_response() -> MagicMock:
 class TestMissingApiKey:
     def test_raises_when_key_not_set(self, monkeypatch):
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
-            call_llm([{"role": "user", "content": "hello"}])
+        settings = Settings(database_url="", openai_api_key="", _env_file=None)
+        with patch("llm.client.get_settings", return_value=settings):
+            with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
+                call_llm([{"role": "user", "content": "hello"}])
 
     def test_error_message_is_helpful(self, monkeypatch):
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        with pytest.raises(RuntimeError) as exc_info:
-            call_llm([{"role": "user", "content": "hello"}])
+        settings = Settings(database_url="", openai_api_key="", _env_file=None)
+        with patch("llm.client.get_settings", return_value=settings):
+            with pytest.raises(RuntimeError) as exc_info:
+                call_llm([{"role": "user", "content": "hello"}])
         assert ".env" in str(exc_info.value)
 
 
@@ -69,6 +74,19 @@ class TestMissingApiKey:
 # ---------------------------------------------------------------------------
 
 class TestSuccessfulCall:
+    def test_uses_settings_key_when_environment_key_is_absent(self, monkeypatch):
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        settings = Settings(database_url="", openai_api_key="sk-settings1234", _env_file=None)
+
+        with patch("llm.client.get_settings", return_value=settings), \
+             patch("llm.client.OpenAI") as mock_openai:
+            mock_create = mock_openai.return_value.chat.completions.create
+            mock_create.return_value = _mock_response({"key": "value"})
+            result = call_llm([{"role": "user", "content": "test"}])
+
+        assert result == {"key": "value"}
+        mock_openai.assert_called_once_with(api_key="sk-settings1234")
+
     def test_returns_parsed_dict(self, monkeypatch):
         monkeypatch.setenv("OPENAI_API_KEY", "sk-test1234")
         with patch("llm.client.OpenAI") as mock_openai:

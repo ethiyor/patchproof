@@ -5,11 +5,14 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
+from sqlalchemy import select
+
 from backend.api.reviews import (
     _analyze_and_save_review,
     _get_or_create_pull_request,
     _get_or_create_repository,
 )
+from backend.db.models import Review
 from backend.db.session import get_session_factory
 from backend.services.github_app import GitHubAppClient
 from backend.services.pr_commenter import PRCommentError, post_review_comment
@@ -91,9 +94,6 @@ async def process_pull_request_webhook(event: PullRequestWebhookEvent) -> None:
         return
 
     task_text = _resolve_task_text(event=event, metadata=metadata)
-    if not task_text:
-        logger.info("GitHub PR webhook has no task text: repo=%s pr=%s", event.repo_full_name, event.pr_number)
-        return
 
     factory = get_session_factory()
     async with factory() as db:
@@ -109,6 +109,11 @@ async def process_pull_request_webhook(event: PullRequestWebhookEvent) -> None:
             head_branch=metadata.head_branch,
             state=metadata.state,
         )
+        task_text = task_text or await _get_latest_task_text_for_pull_request(db, pull_request.id)
+        if not task_text:
+            logger.info("GitHub PR webhook has no task text: repo=%s pr=%s", event.repo_full_name, event.pr_number)
+            return
+
         review_response = await _analyze_and_save_review(
             db=db,
             task_text=task_text,
@@ -128,6 +133,18 @@ async def process_pull_request_webhook(event: PullRequestWebhookEvent) -> None:
                 review_response.review_id,
                 exc,
             )
+
+
+async def _get_latest_task_text_for_pull_request(db, pull_request_id: uuid.UUID) -> str:
+    """Return the most recent stored task text for a pull request, if any."""
+    result = await db.execute(
+        select(Review.task_text)
+        .where(Review.pull_request_id == pull_request_id)
+        .order_by(Review.created_at.desc())
+        .limit(1)
+    )
+    task_text = result.scalar_one_or_none()
+    return task_text.strip() if isinstance(task_text, str) else ""
 
 
 def _resolve_task_text(*, event: PullRequestWebhookEvent, metadata: PRMetadata) -> str:

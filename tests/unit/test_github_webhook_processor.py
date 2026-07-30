@@ -23,6 +23,14 @@ class AsyncSessionContext:
         return False
 
 
+class ScalarOneOrNoneResult:
+    def __init__(self, value):
+        self.value = value
+
+    def scalar_one_or_none(self):
+        return self.value
+
+
 def _payload(body: str = "Add PDF upload support") -> dict:
     return {
         "action": "opened",
@@ -154,6 +162,32 @@ class TestProcessPullRequestWebhook:
 
         assert analyze_mock.await_args.kwargs["task_text"] == "Linked issue task"
 
+    def test_reuses_latest_stored_task_text_when_synchronize_body_empty(self):
+        payload = _payload(body="")
+        payload["action"] = "synchronize"
+        event = parse_pull_request_webhook(payload)
+        db = MagicMock(name="db")
+        db.execute = AsyncMock(return_value=ScalarOneOrNoneResult("Original PR task"))
+        session_factory = MagicMock(return_value=AsyncSessionContext(db))
+        app_client = MagicMock()
+        app_client.get_installation_token.return_value = "installation-token"
+        github_client = MagicMock()
+        github_client.fetch_pr_metadata.return_value = _metadata(body="", linked_issue_body=None)
+        github_client.fetch_pr_diff.return_value = "diff --git a/app.py b/app.py\n"
+        repository = SimpleNamespace(id=uuid.uuid4(), installation_id=None)
+        pull_request = SimpleNamespace(id=uuid.uuid4())
+
+        with patch("backend.services.github_webhook_processor.GitHubAppClient", return_value=app_client), \
+            patch("backend.services.github_webhook_processor.GitHubClient", return_value=github_client), \
+            patch("backend.services.github_webhook_processor.get_session_factory", return_value=session_factory), \
+            patch("backend.services.github_webhook_processor._get_or_create_repository", new=AsyncMock(return_value=repository)), \
+            patch("backend.services.github_webhook_processor._get_or_create_pull_request", new=AsyncMock(return_value=pull_request)), \
+            patch("backend.services.github_webhook_processor._analyze_and_save_review", new=AsyncMock(return_value=SimpleNamespace(review_id=str(uuid.uuid4())))) as analyze_mock, \
+            patch("backend.services.github_webhook_processor.post_review_comment", new=AsyncMock()):
+            asyncio.run(process_pull_request_webhook(event))
+
+        db.execute.assert_awaited_once()
+        assert analyze_mock.await_args.kwargs["task_text"] == "Original PR task"
     def test_skips_save_when_diff_is_empty(self):
         event = parse_pull_request_webhook(_payload())
         app_client = MagicMock()

@@ -26,3 +26,6 @@ secrets/
 *.private-key.pem
 .env.*
 !.env.example
+
+# VS Code extension packages
+*.vsix

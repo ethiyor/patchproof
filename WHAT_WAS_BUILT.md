@@ -1,94 +1,57 @@
 # What Was Built - PatchProof
 
-This file always shows the **latest** milestone. Previous milestones are archived in [`notes/`](notes/).
+This file summarizes the current state of PatchProof. Detailed milestone notes are archived in `notes/`.
 
-| Milestone | Note |
-|---|---|
-| 1.1 - 1.6 - Local CLI | archived in `notes/` |
-| 2.1 - 2.7 - LLM Pipeline | archived in `notes/` |
-| 3.1 - 3.5 - GitHub PR CLI | archived in `notes/` |
-| 4.1 - 4.4 - Backend foundation | archived in `notes/` |
-| 4.5 - GitHub PR Review Endpoint | archived in `notes/` |
-| **4.6 - Get Review Endpoint** | **current** |
+## Current State
 
----
+PatchProof has grown from a local CLI into a full code-review platform:
 
-## Current: Phase 4 - Milestone 4.6 - GET /reviews/{review_id}
+- Local CLI review of working-tree, staged, saved diff, and GitHub PR changes.
+- Modular review engine for diff parsing, task analysis, requirement checks, missing-test detection, risk scoring, and Markdown report generation.
+- FastAPI backend with PostgreSQL persistence and Alembic migrations.
+- GitHub App webhook flow with signature verification, installation-token auth, PR analysis, and PR comment posting.
+- React dashboard for review history, detail pages, filtering, and risk trends.
+- VS Code extension sidebar that collects the current Git diff and sends it to the backend.
+- Local Docker Compose stack and AWS deployment path using ECR, ECS Fargate, ALB, and RDS PostgreSQL.
 
-### What was built
+## Latest Milestones
 
-The FastAPI backend can now retrieve a saved review by ID.
+| Phase | Status | What it added |
+|---|---|---|
+| 4 | Complete | Backend, PostgreSQL models, migrations, local/GitHub review endpoints, Docker Compose |
+| 5 | Complete | GitHub App registration, webhook verification, JWT installation-token auth, background PR analysis, PR comments, end-to-end test flow |
+| 6 | Complete | React/Vite dashboard, review list, detail view, filters, risk trend chart, production build |
+| 7 | Complete | VS Code extension scaffold, task input sidebar, Git diff collection, backend API call, report rendering |
+| 8 | Repo polish in progress | Test verification, README refresh, deployment notes, demo script preparation |
 
-After a client creates a review through `POST /reviews/local` or
-`POST /reviews/github-pr`, it can use the returned `review_id` to fetch the
-stored review details later.
-
-The new endpoint is:
-
-```text
-GET /reviews/{review_id}
-```
-
-It returns a `ReviewDetailResponse`:
-
-```json
-{
-  "review_id": "...",
-  "created_at": "2026-07-06T12:30:00Z",
-  "task_text": "Add PDF upload validation",
-  "risk_score": 4,
-  "risk_level": "medium",
-  "merge_recommendation": "needs_changes",
-  "report_markdown": "# PatchProof Report...",
-  "findings": [],
-  "requirement_checks": [],
-  "changed_files": []
-}
-```
-
-### Files changed
-
-| File | What changed |
-|---|---|
-| `backend/schemas/review_schemas.py` | Added `ReviewDetailResponse` and nested response schemas |
-| `backend/api/reviews.py` | Added `GET /reviews/{review_id}` |
-| `tests/unit/test_reviews_api.py` | Added review detail and not-found tests |
-| `notes/4.6_get_review_endpoint.md` | Deep explanation for this milestone |
-
-### How the endpoint works
+## How PatchProof Works
 
 ```text
-1. Validate `review_id` as a UUID
-2. Query the `reviews` table by ID
-3. Load related findings, requirement checks, and changed files
-4. Return one full saved review response
-5. Return `404` if the review does not exist
+1. A developer gives PatchProof a task and a diff, or GitHub sends a pull request webhook.
+2. PatchProof parses the changed files and hunks.
+3. The review engine checks task alignment, risk-sensitive paths, missing tests, and evidence.
+4. The backend stores the report, findings, requirement checks, and changed files in PostgreSQL.
+5. The result is returned to the caller, shown in the dashboard/extension, or posted back to the PR.
 ```
 
-### Why this milestone matters
+## Validation Snapshot
 
-Milestones 4.4 and 4.5 made the backend create and store reviews. Milestone 4.6
-adds the matching read path:
-
-```text
-client creates review
-  -> backend returns review_id
-  -> client later calls GET /reviews/{review_id}
-  -> backend returns the saved report and related details
-```
-
-### Validation
+Latest local verification:
 
 ```bash
-python -m compileall backend tests/unit/test_reviews_api.py
-# Compilation succeeded
+.venv/bin/python -m pytest tests/unit -q
+# 356 passed, 1 warning
+
+.venv/bin/python -m pytest tests/integration -q
+# 5 passed
+
+cd vscode-extension && npm run compile
+# TypeScript compile succeeded
 ```
 
-`pytest` could not be run in this local environment because the active Python does not have `pytest` installed.
+## Remaining Manual Polish
 
-### What comes next - Milestone 4.7
-
-Update the CLI so it can call the backend instead of only running analysis in-process.
-
-
-I wrote this sentence just to make changes.
+- Record and upload the 3-5 minute demo video.
+- Add the demo video link and screenshots/GIFs to the README.
+- Move deployed ECS secrets from plaintext task-definition values into AWS Secrets Manager.
+- Add HTTPS to the AWS load balancer before treating the deployment as production-like.

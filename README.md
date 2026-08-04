@@ -1,68 +1,65 @@
 # PatchProof
 
-PatchProof is an AI-powered merge-readiness system for code changes. It compares a Git diff or GitHub pull request against the original task, checks whether the requested behavior was actually implemented, flags missing tests and risky files, and produces an evidence-based review report.
+PatchProof is an AI-powered merge-readiness tool for code changes. It compares a Git diff or GitHub pull request against the original task, checks whether the requested behavior was implemented, flags missing tests and risky files, and produces an evidence-based review report.
 
-PatchProof now has four entry points:
+PatchProof is built as a developer tool with multiple surfaces:
 
-- CLI for local and PR-based reviews.
+- CLI for local and GitHub PR reviews.
 - FastAPI backend with PostgreSQL persistence.
-- GitHub App webhook flow that can comment on pull requests.
-- React dashboard and VS Code extension surfaces for reviewing history and local changes.
+- GitHub App webhook automation for pull request analysis and comments.
+- React/TypeScript dashboard for review history and risk trends.
+- VS Code extension for local diff reviews from the editor.
+
+## Why PatchProof
+
+AI coding tools can generate large patches quickly, but reviewers still need to answer the same hard question: did this change actually satisfy the task, and is it safe to merge? PatchProof focuses on task alignment, evidence, missing tests, and merge-readiness instead of generic style comments.
 
 ## Architecture
 
 ```text
-Developer / GitHub PR / VS Code
-        |
-        v
-PatchProof CLI, GitHub App webhook, or VS Code extension
+CLI / GitHub App / VS Code Extension / Dashboard
         |
         v
 FastAPI backend
         |
         v
-Review engine: diff parsing, requirement verification, test checks, risk scoring, report generation
+Review engine
+(diff parsing, task checks, test checks, risk scoring, report generation)
         |
         v
-PostgreSQL review history + GitHub PR comment when triggered by webhook
+PostgreSQL review history
+        |
+        v
+Markdown report, dashboard view, or GitHub PR comment
 ```
 
-For the AWS deployment you built during development, the deployed path is:
+Deployment work has also been tested with AWS components:
 
 ```text
-GitHub webhook -> Application Load Balancer -> ECS Fargate task -> FastAPI -> Amazon RDS PostgreSQL
+GitHub webhook -> Application Load Balancer -> ECS Fargate -> FastAPI -> RDS PostgreSQL
 ```
+
+## Features
+
+- Parse Git diffs into structured file, hunk, addition, deletion, and risk metadata.
+- Analyze implementation against a natural-language task description.
+- Detect risky paths such as auth, migrations, configuration, and security-sensitive files.
+- Identify missing or weak test coverage signals.
+- Generate Markdown merge-readiness reports.
+- Store reviews, findings, requirement checks, changed files, repositories, and pull requests in PostgreSQL.
+- Verify GitHub webhook signatures and authenticate as a GitHub App with installation tokens.
+- Post PatchProof reports back to pull requests.
+- Reuse the original PR task context when new commits are pushed to an existing PR.
+- Run local reviews from a packaged VS Code extension.
 
 ## Prerequisites
 
 - Python 3.12+
-- Node.js 20+
-- Docker Desktop, if you want the local backend/database stack
-- PostgreSQL client tools, if you want to inspect a remote database with `psql`
+- Node.js 20+ for the dashboard or VS Code extension
+- Docker Desktop for local backend/database development
 - OpenAI API key for real LLM-backed reviews
-- GitHub App credentials for webhook and PR comment automation
-
-## Environment
-
-Create your local `.env` from the example file:
-
-```bash
-cp .env.example .env
-```
-
-Common local values:
-
-```bash
-OPENAI_API_KEY=...
-DATABASE_URL=postgresql+asyncpg://patchproof:patchproof@localhost:5432/patchproof
-GITHUB_WEBHOOK_SECRET=...
-GITHUB_APP_ID=...
-GITHUB_APP_PRIVATE_KEY=-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----\n
-# Optional for CLI-only GitHub requests
-GITHUB_TOKEN=...
-```
-
-Do not commit `.env`, private keys, GitHub tokens, or OpenAI keys.
+- Optional: GitHub token for CLI PR review
+- Optional: GitHub App credentials for webhook automation
 
 ## Quick Start: CLI
 
@@ -75,31 +72,21 @@ pip install -e .
 cp .env.example .env
 ```
 
-Review local changes:
+Add your required environment values to `.env`, then run:
 
 ```bash
 patchproof review --task task.txt
 ```
 
-Review staged changes only:
+Other useful CLI commands:
 
 ```bash
 patchproof review --staged --task task.txt
-```
-
-Review a saved diff file:
-
-```bash
 patchproof review --diff saved.diff --task task.txt
-```
-
-Review a GitHub pull request:
-
-```bash
 patchproof review-pr https://github.com/org/repo/pull/42 --task task.txt
 ```
 
-## Quick Start: Backend and Database
+## Local Backend and Database
 
 Run the local FastAPI backend and PostgreSQL database with Docker Compose:
 
@@ -114,15 +101,15 @@ Local URLs:
 - API docs: `http://localhost:8000/docs`
 - PostgreSQL: `localhost:5432`
 
-The Compose backend waits for Postgres, runs `alembic upgrade head`, then starts Uvicorn with reload enabled.
+The backend waits for Postgres, runs `alembic upgrade head`, then starts Uvicorn.
 
-To stop containers:
+Stop the stack:
 
 ```bash
 docker compose down
 ```
 
-To stop containers and delete local Postgres data:
+Delete local Postgres data too:
 
 ```bash
 docker compose down -v
@@ -130,12 +117,12 @@ docker compose down -v
 
 ## Backend API
 
-Useful endpoints:
+Common endpoints:
 
 ```text
 GET  /health
 POST /reviews/local
-POST /reviews/github-p
+POST /reviews/github-pr
 GET  /reviews/{review_id}
 GET  /reviews?page=1&limit=20&risk_level=high
 POST /github/webhook
@@ -155,29 +142,23 @@ curl -X POST http://localhost:8000/reviews/local \
   }'
 ```
 
-## GitHub App Webhook
+## GitHub App Webhooks
 
-In GitHub App settings, set the webhook URL to your backend URL plus `/github/webhook`:
+For GitHub App automation, set the webhook URL to your backend URL plus `/github/webhook`:
 
 ```text
-https://your-backend-domain.example.com/github/webhook
+https://your-backend.example.com/github/webhook
 ```
 
-For local development with ngrok:
+For local development, expose the backend with a tunnel such as ngrok:
 
 ```text
 https://your-ngrok-domain.ngrok-free.dev/github/webhook
 ```
 
-For the AWS ECS deployment, use the ALB DNS name once `/health` works through the load balancer:
+PatchProof validates `X-Hub-Signature-256`, processes `pull_request` events, fetches PR metadata/diff with a GitHub App installation token, stores the review, and posts a PR comment.
 
-```text
-http://your-alb-dns-name.us-east-2.elb.amazonaws.com/github/webhook
-```
-
-The webhook endpoint verifies GitHub's signature, receives pull request events, fetches PR context through the GitHub App installation token, runs PatchProof, stores the result, and posts a PR comment.
-
-## React Dashboard
+## Dashboard
 
 ```bash
 cd frontend
@@ -185,9 +166,7 @@ npm install
 npm run dev
 ```
 
-The dashboard reads review history from the backend and provides list/detail views, filters, and risk trend visualization.
-
-If the backend is not on `http://localhost:8000`, configure the frontend API base URL through the Vite environment file used by the frontend.
+The dashboard reads review history from the backend and provides review list/detail views, filters, and risk trend visualization.
 
 ## VS Code Extension
 
@@ -195,17 +174,10 @@ If the backend is not on `http://localhost:8000`, configure the frontend API bas
 cd vscode-extension
 npm install
 npm run compile
+npm run package
 ```
 
-To run it locally:
-
-1. Open the repo in VS Code.
-2. Open `vscode-extension/src/extension.ts`.
-3. Press `F5` to launch an Extension Development Host.
-4. Open the PatchProof activity bar view.
-5. Enter a task description and run the review.
-
-The extension reads your current Git diff, sends it to the configured backend, and renders the returned PatchProof report in the sidebar.
+The extension collects the active repository's Git diff, sends it to the configured PatchProof backend, and renders the returned report in the sidebar.
 
 Configure the backend URL in VS Code settings:
 
@@ -214,25 +186,6 @@ Configure the backend URL in VS Code settings:
   "patchproof.apiUrl": "http://localhost:8000"
 }
 ```
-
-## AWS Deployment Notes
-
-The current AWS learning deployment uses:
-
-- Amazon ECR for the Docker image.
-- ECS Fargate for running the FastAPI container.
-- Application Load Balancer for public HTTP access.
-- Amazon RDS PostgreSQL for persistent review data.
-- IAM roles for ECS image pull, logging, and secret access.
-- Security groups to control HTTP and PostgreSQL traffic.
-
-Recommended production hardening still to do:
-
-- Move all task-definition plaintext secrets into AWS Secrets Manager.
-- Use HTTPS on the load balancer with ACM.
-- Restrict RDS access to ECS security groups instead of personal IPs.
-- Add CloudWatch alarms and log retention.
-- Build CI/CD so pushing a release image updates the ECS service automatically.
 
 ## Tests
 
@@ -255,21 +208,38 @@ cd vscode-extension
 npm run compile
 ```
 
+Current local verification snapshot: 364 Python tests pass, plus the TypeScript extension build.
+
 ## Project Structure
 
 ```text
-backend/            FastAPI app, API routes, database models, migrations
-cli/                CLI commands, local review flow, GitHub PR commands
-core/               Diff parser, LLM pipeline, verification, scoring, reports
-frontend/           React dashboard
-llm/                LLM client abstractions and prompt-facing helpers
-models/             Pydantic models shared by review pipeline code
+backend/            FastAPI routes, database models, migrations, GitHub App services
+cli/                CLI commands, local review flow, GitHub PR review flow
+core/               Diff parser, risk scorer, task/test verification, reports
+frontend/           React/TypeScript dashboard
+llm/                LLM client abstractions
+models/             Pydantic models shared by the review pipeline
 tests/              Unit tests, integration tests, fixtures, golden reports
 vscode-extension/   PatchProof VS Code sidebar extension
+docs/               Architecture, API, deployment, and phase docs
 notes/              Per-milestone implementation notes
-docs/               Phase roadmap, architecture, API, and security docs
 ```
+
+## Security Notes
+
+- Never commit `.env`, private keys, tokens, or cloud credentials.
+- Rotate any credential that was ever committed before making a repo public.
+- Use separate credentials for local development and deployed environments.
+- Prefer cloud secret stores for hosted deployments.
+
+## Limitations
+
+PatchProof is an assistive review tool, not a replacement for human review. LLM-backed findings can be incomplete or wrong, so reports should be treated as structured review evidence rather than final authority.
 
 ## Contributing
 
-Keep changes focused, add or update tests for behavior changes, and avoid committing generated artifacts or secrets. For database schema changes, update SQLAlchemy models and create an Alembic migration rather than editing an already-applied migration.
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+PatchProof is released under the [MIT License](LICENSE).

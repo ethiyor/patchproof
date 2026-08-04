@@ -16,6 +16,25 @@ def _load(name: str) -> str:
     return (FIXTURES / name).read_text(encoding="utf-8")
 
 
+@pytest.mark.parametrize(
+    "fixture_name",
+    [
+        "auth_change.diff",
+        "frontend_component.diff",
+        "github_pr.diff",
+        "migration_change.diff",
+        "secret_change.diff",
+        "simple_add.diff",
+        "test_update.diff",
+    ],
+)
+def test_all_sample_diff_fixtures_are_parseable(fixture_name: str):
+    result = parse_diff(_load(fixture_name))
+
+    assert isinstance(result, ParsedDiff)
+    assert result.total_files >= 1
+
+
 # ---------------------------------------------------------------------------
 # simple_add.diff
 # One new Python file, non-risky, no tests.

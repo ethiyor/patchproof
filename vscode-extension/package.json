@@ -1,0 +1,74 @@
+{
+    "name":  "patchproof-vscode",
+    "displayName":  "PatchProof",
+    "description":  "Run PatchProof reviews from inside VS Code.",
+    "version":  "0.1.0",
+    "publisher":  "ethiyor",
+    "engines":  {
+                    "vscode":  "^1.95.0"
+                },
+    "categories":  [
+                       "Other"
+                   ],
+    "activationEvents":  [
+                             "onStartupFinished"
+                         ],
+    "main":  "./dist/extension.js",
+    "contributes":  {
+                        "commands":  [
+                                         {
+                                             "command":  "patchproof.reviewLocalChanges",
+                                             "title":  "PatchProof: Review Local Changes"
+                                         }
+                                     ],
+                        "configuration":  {
+                                              "title":  "PatchProof",
+                                              "properties":  {
+                                                                 "patchproof.apiUrl":  {
+                                                                                           "type":  "string",
+                                                                                           "default":  "http://patchproof-alb-1732344178.us-east-2.elb.amazonaws.com",
+                                                                                           "description":  "Base URL for the PatchProof backend API."
+                                                                                       }
+                                                             }
+                                          },
+                        "viewsContainers":  {
+                                                "activitybar":  [
+                                                                    {
+                                                                        "id":  "patchproof",
+                                                                        "title":  "PatchProof",
+                                                                        "icon":  "media/patchproof.svg"
+                                                                    }
+                                                                ]
+                                            },
+                        "views":  {
+                                      "patchproof":  [
+                                                         {
+                                                             "id":  "patchproof.sidebar",
+                                                             "name":  "Review"
+                                                         }
+                                                     ]
+                                  }
+                    },
+    "scripts":  {
+                    "compile":  "tsc -p ./",
+                    "watch":  "tsc -watch -p ./",
+                    "vscode:prepublish":  "npm run compile",
+                    "package":  "vsce package",
+                    "publish:vsce":  "vsce publish"
+                },
+    "devDependencies":  {
+                            "@types/node":  "^20.17.10",
+                            "@types/vscode":  "^1.95.0",
+                            "@vscode/vsce":  "^3.9.2",
+                            "typescript":  "^5.7.2"
+                        },
+    "repository":  {
+                       "type":  "git",
+                       "url":  "https://github.com/ethiyor/patchproof"
+                   },
+    "homepage":  "https://github.com/ethiyor/patchproof",
+    "bugs":  {
+                 "url":  "https://github.com/ethiyor/patchproof/issues"
+             },
+    "license":  "MIT"
+}

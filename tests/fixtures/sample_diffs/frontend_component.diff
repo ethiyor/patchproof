@@ -1,0 +1,19 @@
+diff --git a/frontend/src/components/ReviewCard.tsx b/frontend/src/components/ReviewCard.tsx
+new file mode 100644
+index 0000000..1f2a3b4
+--- /dev/null
++++ b/frontend/src/components/ReviewCard.tsx
+@@ -0,0 +1,13 @@
++type ReviewCardProps = {
++  repoName: string;
++  riskLevel: string;
++};
++
++export function ReviewCard({ repoName, riskLevel }: ReviewCardProps) {
++  return (
++    <article>
++      <h2>{repoName}</h2>
++      <p>{riskLevel}</p>
++    </article>
++  );
++}

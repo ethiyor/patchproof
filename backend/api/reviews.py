@@ -3,21 +3,25 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.config import get_settings
 from backend.db.models import ChangedFile, PullRequest, Repository, Review
 from backend.db.session import get_db_session
+from backend.services.pr_commenter import PRCommentError, post_review_comment
 from backend.schemas.review_schemas import (
     ChangedFileResponse,
     GithubPRReviewRequest,
     LocalReviewRequest,
     RequirementCheckResponse,
+    ReviewCommentResponse,
     ReviewDetailResponse,
     ReviewFindingResponse,
+    ReviewListItemResponse,
+    ReviewListResponse,
     ReviewResponse,
 )
 from cli.github_client import GitHubClient, parse_pr_url
@@ -188,6 +192,63 @@ async def _get_or_create_pull_request(
 
 
 # ---------------------------------------------------------------------------
+# GET /reviews
+# ---------------------------------------------------------------------------
+
+@router.get("", response_model=ReviewListResponse)
+async def list_reviews(
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    risk_level: str | None = Query(None),
+    db: AsyncSession = Depends(get_db_session),
+) -> ReviewListResponse:
+    """Return a paginated list of saved reviews for the dashboard."""
+    filters = []
+    if risk_level:
+        filters.append(Review.risk_level == risk_level.lower())
+
+    total_stmt = select(func.count()).select_from(Review)
+    reviews_stmt = (
+        select(Review)
+        .options(selectinload(Review.repository))
+        .order_by(Review.created_at.desc())
+        .offset((page - 1) * limit)
+        .limit(limit)
+    )
+    if filters:
+        total_stmt = total_stmt.where(*filters)
+        reviews_stmt = reviews_stmt.where(*filters)
+
+    total_result = await db.execute(total_stmt)
+    total = total_result.scalar_one()
+
+    reviews_result = await db.execute(reviews_stmt)
+    reviews = reviews_result.scalars().all()
+
+    return ReviewListResponse(
+        total=total,
+        reviews=[
+            ReviewListItemResponse(
+                review_id=str(review.id),
+                repo_name=_format_repo_name(review),
+                risk_score=review.risk_score,
+                risk_level=review.risk_level,
+                merge_recommendation=review.merge_recommendation,
+                created_at=review.created_at,
+            )
+            for review in reviews
+        ],
+    )
+
+
+def _format_repo_name(review: Review) -> str:
+    """Return owner/name when a review is linked to a repository."""
+    if review.repository is not None:
+        return f"{review.repository.owner}/{review.repository.name}"
+    return "unknown"
+
+
+# ---------------------------------------------------------------------------
 # GET /reviews/{review_id}
 # ---------------------------------------------------------------------------
 
@@ -255,6 +316,28 @@ async def get_review(
     )
 
 
+# ---------------------------------------------------------------------------
+# POST /reviews/{review_id}/comment
+# ---------------------------------------------------------------------------
+
+@router.post("/{review_id}/comment", response_model=ReviewCommentResponse)
+async def comment_on_review(
+    review_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db_session),
+) -> ReviewCommentResponse:
+    """Post a saved PatchProof report as a GitHub PR comment."""
+    try:
+        result = await post_review_comment(db=db, review_id=review_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PRCommentError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return ReviewCommentResponse(
+        review_id=str(review_id),
+        status="posted",
+        comment_url=result.comment_url,
+    )
 # ---------------------------------------------------------------------------
 # POST /reviews/local
 # ---------------------------------------------------------------------------

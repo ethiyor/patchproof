@@ -1,6 +1,7 @@
 # Environment
 .env
 .venv/
+node_modules/
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -17,3 +18,14 @@ patchproof-report.md
 
 # OS
 .DS_Store
+# GitHub App private keys and local secrets
+secrets/
+*.pem
+*.key
+*.private-key
+*.private-key.pem
+.env.*
+!.env.example
+
+# VS Code extension packages
+*.vsix

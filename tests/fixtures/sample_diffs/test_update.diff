@@ -1,0 +1,14 @@
+diff --git a/tests/unit/test_review_card.py b/tests/unit/test_review_card.py
+new file mode 100644
+index 0000000..5d6e7f8
+--- /dev/null
++++ b/tests/unit/test_review_card.py
+@@ -0,0 +1,8 @@
++from core.risk_scorer import score_risk
++
++
++def test_low_risk_for_docs_only_change():
++    result = score_risk(total_files=1, risky_files=[], has_test_changes=True)
++
++    assert result.score <= 3
++    assert result.level == "low"
